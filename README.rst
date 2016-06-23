@@ -87,7 +87,7 @@ verify
 
 ::
 
-    arcdiscvist index
+    arcdiscvist verify
 
 Runs verification on volumes to see if they're corrupted, and if so, if
 they still have enough parity information to be recoverable.
@@ -109,9 +109,10 @@ volumes
 
 ::
 
-    arcdiscvist volumes
+    arcdiscvist volumes [<LABEL>]
 
-Lists all volumes the system knows about along with basic details.
+Lists all volumes the system knows about along with basic details. Provide
+a label to just see details about a single volume.
 
 
 destroyed
