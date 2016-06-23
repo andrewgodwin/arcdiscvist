@@ -86,6 +86,8 @@ class CommandLineInterface(object):
             self.noninteractive = args.yes
             if self.noninteractive:
                 self.info("Running in noninteractive mode")
+            if args.command == "ls":
+                args.command = "list"
             # Run right subcommand
             handler = getattr(self, "command_%s" % args.command, None)
             if not handler:

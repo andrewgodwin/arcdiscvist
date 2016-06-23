@@ -44,12 +44,13 @@ class Builder(object):
         self.total_size = 0
         self.files = []
         # Gather files
-        for path in sorted(self.source.files(filters)):
-            if len(self.index.file_volumes(path)) < self.copies:
-                pathsize = self.source.size(path)
-                if pathsize < (data_size - self.total_size):
-                    self.total_size += pathsize
-                    self.files.append(path)
+        for filter in filters:
+            for path in sorted(self.source.files([filter])):
+                if len(self.index.file_volumes(path)) < self.copies:
+                    pathsize = self.source.size(path)
+                    if pathsize < (data_size - self.total_size):
+                        self.total_size += pathsize
+                        self.files.append(path)
 
     def normalize_tar(self, tarinfo):
         tarinfo.uid = tarinfo.gid = 0
