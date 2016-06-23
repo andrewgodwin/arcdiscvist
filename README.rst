@@ -32,6 +32,7 @@ list
 ----
 
 ::
+
     arcdiscvist list [<PATH>]
 
 Lists files in the index by directory, like `ls`. With no arguments, lists
@@ -42,6 +43,7 @@ find
 ----
 
 ::
+
     arcdiscvist list <PATTEN>
 
 Finds files in the index according to the PATTERN, which supports unix-style
@@ -52,6 +54,7 @@ build
 -----
 
 ::
+
     arcdiscvist build <VOLUME_PATH> <PATH> [<PATH> ...]
 
 Looks at the source directory, and builds as much of it as possible that is not
@@ -72,6 +75,7 @@ restore
 -------
 
 ::
+
     arcdiscvist restore <PATH> [<PATH> ...]
 
 Given one or more paths in the archive, prompts for the volumes needed to
@@ -82,6 +86,7 @@ verify
 ------
 
 ::
+
     arcdiscvist index
 
 Runs verification on volumes to see if they're corrupted, and if so, if
@@ -92,6 +97,7 @@ index
 -----
 
 ::
+
     arcdiscvist index
 
 Adds details on all available volumes into the index. Will remove any files
@@ -102,6 +108,7 @@ volumes
 -------
 
 ::
+
     arcdiscvist volumes
 
 Lists all volumes the system knows about along with basic details.
@@ -111,6 +118,7 @@ destroyed
 ---------
 
 ::
+
     arcdiscvist destroyed <VOLUME_LABEL>
 
 Marks a volume as destroyed or lost, removing all entries credited to it
