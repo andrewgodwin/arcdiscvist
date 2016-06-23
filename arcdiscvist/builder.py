@@ -26,10 +26,11 @@ class Builder(object):
         Prepares the volume information according to the device
         """
         # See what kind of device it is
-        stat_result = os.stat(device)
         if device.endswith(".udf"):
             self.writer = UDFImage(device)
-        elif stat.S_ISBLK(stat_result.st_mode):
+        elif "=" in device:
+            self.writer = DirectDisk(device)
+        elif stat.S_ISBLK(os.stat(device).st_mode):
             self.writer = BluRayWriter(device)
         else:
             raise BuildError("Cannot determine type of target device %s" % device)
@@ -102,6 +103,33 @@ class Builder(object):
             progress("commit", "end")
         finally:
             self.writer.cleanup()
+
+
+class DirectDisk(object):
+
+    type = "disk"
+    burn = False
+    mounted = False
+
+    def __init__(self, device):
+        self.path, size = device.split("=")
+        if size.endswith("M"):
+            self.size = int(size[:-1]) * (1024 ** 2)
+        elif size.endswith("G"):
+            self.size = int(size[:-1]) * (1024 ** 3)
+        elif size.endswith("T"):
+            self.size = int(size[:-1]) * (1024 ** 4)
+        else:
+            self.size = int(size)
+
+    def prep(self, label):
+        pass
+
+    def commit(self):
+        pass
+
+    def cleanup(self):
+        pass
 
 
 class UDFImage(object):

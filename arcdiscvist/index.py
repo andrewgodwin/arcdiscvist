@@ -3,6 +3,8 @@ import datetime
 import random
 import os
 
+from .utils import get_fs_type
+
 
 class Index(object):
     """
@@ -20,7 +22,8 @@ class Index(object):
                 label text PRIMARY KEY,
                 size integer,  -- In bytes
                 created integer,  -- UNIX Timestamp
-                location text
+                location text,
+                type text
             )
         """)
         self.conn.execute("""
@@ -38,32 +41,33 @@ class Index(object):
         """
         Returns an iterable of all volumes.
         """
-        for row in self.conn.execute("SELECT label, size, created, location FROM Volumes"):
-            yield Volume(self, row[0], row[1],  datetime.datetime.fromtimestamp(row[2]), row[3])
+        for row in self.conn.execute("SELECT label, size, created, location, type FROM Volumes"):
+            yield Volume(self, row[0], row[1],  datetime.datetime.fromtimestamp(row[2]), row[3], row[4])
 
     def volume(self, label):
         """
         Returns a single volume by label
         """
         cursor = self.conn.cursor()
-        cursor.execute("SELECT label, size, created, location FROM Volumes WHERE label = ?", (label, ))
+        cursor.execute("SELECT label, size, created, location, type FROM Volumes WHERE label = ?", (label, ))
         row = cursor.fetchone()
         if row is None:
             return None
         else:
-            return Volume(self, row[0], row[1], datetime.datetime.fromtimestamp(row[2]), row[3])
+            return Volume(self, row[0], row[1], datetime.datetime.fromtimestamp(row[2]), row[3], row[4])
 
-    def create_volume(self, label, size, created, location):
+    def create_volume(self, label, size, created, location=None, type=None):
         """
         Creates a new volume record with the given info.
         """
         self.conn.execute(
-            "INSERT INTO Volumes (label, size, created, location) VALUES (?, ? ,? ,?)",
+            "INSERT INTO Volumes (label, size, created, location, type) VALUES (?, ?, ?, ?, ?)",
             (
                 label,
                 int(size),
                 created.timestamp(),
                 location,
+                type,
             )
         )
         self.conn.commit()
@@ -127,14 +131,26 @@ class Index(object):
         """
         Adds the contents of the volume directory to the index.
         """
+        # Make sure it has an entry
         if self.volume(volume_directory.label) is None:
             self.create_volume(
                 volume_directory.label,
                 volume_directory.size(),
                 volume_directory.created(),
                 None,
+                None,
             )
         volume = self.volume(volume_directory.label)
+        # Update its type
+        fstype, mountpoint = get_fs_type(volume_directory.path)
+        if fstype in ["fuseblk", "ext3"]:
+            volume.set_type("hdd")
+        elif fstype in ["udf"]:
+            volume.set_type("bluray")
+        else:
+            print("Cannot determine volume type of %s, on %s" % (volume_directory.label, mountpoint))
+            volume.set_type(None)
+        # Index files
         added = 0
         for member in volume_directory.files():
             volume.index_file(member.name, member.size, member.mtime)
@@ -147,12 +163,13 @@ class Volume(object):
     Represents a Volume
     """
 
-    def __init__(self, index, label, size, created, location=None):
+    def __init__(self, index, label, size, created, location=None, type=None):
         self.index = index
         self.label = label
         self.size = size
         self.created = created
         self.location = location
+        self.type = type
 
     def files(self, filters=None):
         """
@@ -206,6 +223,15 @@ class Volume(object):
         self.index.conn.execute("""
             UPDATE Volumes SET location = ? WHERE label = ?
         """, (location, self.label, ))
+        self.index.conn.commit()
+
+    def set_type(self, value):
+        """
+        Removes all information about this volume from the index
+        """
+        self.index.conn.execute("""
+            UPDATE Volumes SET type = ? WHERE label = ?
+        """, (value, self.label, ))
         self.index.conn.commit()
 
 

@@ -6,18 +6,18 @@ or volumes, with a separate online index, and optional redundancy/recovery
 files. Split into sub-commands.
 
 Storage volumes are identified by a short label, like ``XERGQP``, and can be
-either rewriteable media, like SD cards, or write-once media, like BD-R discs.
+either rewriteable media, like HDDs/SD cards, or write-once media, like BD-R discs.
 You can save data onto volumes, store them away offline, and use the index to
-query which ones you need to access or restore certain files.
+query which ones you need to access or restore certain files. Volumes are
+single, large files, with meta information and parity data to allow recovery
+due to corruption. Multiple volumes can be stored per disk.
 
 The storage is presented as a single unified folder hierarchy; sections can
 be built and restored by path.
 
 Automatically looks for and identifies storage volumes based on system drives
-with an ``arcdiscvist-volume`` file in the top level.
-
-You can also manually pass volume locations with the ``-v``/``--volume``
-argument, if you have ones that are not being autodiscovered.
+with ``ABCDEF.arcdiscvist`` folders in the top level or an ``arcdiscvist``
+folder.
 
 Works from a local folder on volatile storage that acts as the place to build
 volumes from and restore them to, and which will mirror the storage folder

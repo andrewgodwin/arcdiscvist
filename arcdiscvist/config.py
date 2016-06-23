@@ -57,6 +57,8 @@ class Config(object):
         """
         with open('/proc/mounts','r') as fh:
             mountpoints = [line.split()[1] for line in fh.readlines()]
+        for mountpoint in list(mountpoints):
+            mountpoints.append(os.path.join(mountpoint, "arcdiscvist"))
         for mountpoint in mountpoints:
             if os.path.isdir(mountpoint):
                 for name in os.listdir(mountpoint):
