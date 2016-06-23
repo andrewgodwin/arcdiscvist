@@ -40,6 +40,14 @@ class CommandLineInterface(object):
             help='Paths to volumes',
             default=None,
         )
+        self.parser.add_argument(
+            '-y',
+            '--yes',
+            action="store_true",
+            dest='yes',
+            help='Don\' prompt for confirmations',
+            default=False,
+        )
 
     # Nice output formatting
     def info(self, message):
@@ -75,6 +83,9 @@ class CommandLineInterface(object):
             # Decode args and config
             args = self.parser.parse_args(args)
             self.config = Config()
+            self.noninteractive = args.yes
+            if self.noninteractive:
+                self.info("Running in noninteractive mode")
             # Run right subcommand
             handler = getattr(self, "command_%s" % args.command, None)
             if not handler:
@@ -104,10 +115,19 @@ class CommandLineInterface(object):
         builder.gather_files(filters)
         for file in builder.files:
             self.info(" - %s" % file)
+        if not builder.files:
+            self.fatal(" > No files found.")
         self.success(" > Gathered %s files totalling %s" % (
             len(builder.files),
             human_size(builder.total_size),
         ))
+        if not self.noninteractive:
+            while True:
+                response = input("Proceed with build and burn? [y] ")
+                if response.lower() == "y" or not response:
+                    break
+                else:
+                    self.fatal("User aborted.")
         # Run build
         def progress(step, state):
             if step == "prep":
@@ -122,7 +142,7 @@ class CommandLineInterface(object):
                     self.success("\n > Done.")
             elif step == "parity":
                 if state == "start":
-                    self.info("Creating parity set...")
+                    self.info("Creating parity file...")
                 elif state == "end":
                     self.success(" > Done.")
             elif step == "commit":
@@ -136,6 +156,7 @@ class CommandLineInterface(object):
             elif step == "copyfile":
                 self.info_replace(" - Copying %i/%i: %s" % state)
         builder.build(progress)
+        self.info("Created new volume %s" % builder.volume_label)
 
     def command_index(self):
         index = self.config.index()
@@ -197,3 +218,14 @@ class CommandLineInterface(object):
     def command_destroyed(self, label):
         self.config.index().volume(label).destroyed()
         self.success(" > %s marked as destroyed." % label)
+
+    def command_verify(self, label=None):
+        """
+        Runs verification on visible volumes.
+        """
+        for volume in self.config.visible_volumes():
+            if label and volume.label != label:
+                continue
+            self.info("Verifying volume %s..." % volume.label)
+            volume.verify()
+            self.success(" > Done.")

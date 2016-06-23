@@ -18,8 +18,13 @@ class Source(object):
         for curpath, dirnames, filenames in os.walk(self.path):
             # Trim out dirnames not in the filter list
             for dirname in list(dirnames):
-                dirpath = os.path.join(curpath, dirname)
-                if filters and not any([f.startswith(dirpath) for f in filters]):
+                dirbits = os.path.join(curpath, dirname)[len(self.path)+1:].split("/")
+                for f in filters:
+                    fbits = f.split("/")
+                    complen = min(len(fbits), len(dirbits))
+                    if dirbits[:complen] == fbits[:complen]:
+                        break
+                else:
                     dirnames.remove(dirname)
             # Yield file objects that match.
             for filename in filenames:

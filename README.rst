@@ -44,7 +44,7 @@ find
 
 ::
 
-    arcdiscvist list <PATTEN>
+    arcdiscvist find <PATTEN>
 
 Finds files in the index according to the PATTERN, which supports unix-style
 globbing on the path.

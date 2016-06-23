@@ -2,6 +2,7 @@ import os
 import configparser
 import tarfile
 import datetime
+import subprocess
 
 from .exceptions import ConfigError
 from .index import Index
@@ -89,3 +90,6 @@ class VolumeDirectory(object):
         with tarfile.open(os.path.join(self.path, "data.tar"), "r") as tar:
             for member in tar.getmembers():
                 yield member
+
+    def verify(self):
+        subprocess.check_call(["par2", "verify", os.path.join(self.path, "parity.par2")])

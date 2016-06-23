@@ -44,7 +44,7 @@ class Builder(object):
         self.total_size = 0
         self.files = []
         # Gather files
-        for path in self.source.files(filters):
+        for path in sorted(self.source.files(filters)):
             if len(self.index.file_volumes(path)) < self.copies:
                 pathsize = self.source.size(path)
                 if pathsize < (data_size - self.total_size):
@@ -71,17 +71,25 @@ class Builder(object):
             progress("copy", "start")
             with tarfile.open(os.path.join(volume_dir, "data.tar"), "w") as tar:
                 for i, path in enumerate(self.files):
-                    progress("copyfile", (i, len(self.files), path))
+                    progress("copyfile", (i + 1, len(self.files), path))
                     tar.add(self.source.abspath(path), arcname=path, filter=self.normalize_tar)
             progress("copy", "end")
             # Create parity set
             if self.parity:
+                parity_dir = tempfile.mkdtemp(prefix="arcd-par-")
                 progress("parity", "start")
                 subprocess.check_call([
-                    "par2", "create", "-r%s" % self.parity, "-n1", "-m128",
-                    os.path.join(volume_dir, "parity.par2"),
+                    "par2", "create", "-b1000", "-r%s" % self.parity, "-n1", "-u", "-m4096",
+                    os.path.join(parity_dir, "parity.par2"),
                     os.path.join(volume_dir, "data.tar"),
                 ])
+                for name in os.listdir(parity_dir):
+                    shutil.copyfile(
+                        os.path.join(parity_dir, name),
+                        os.path.join(volume_dir, name),
+                    )
+                    os.unlink(os.path.join(parity_dir, name))
+                os.rmdir(parity_dir)
                 progress("parity", "end")
             # Write volume info file
             with open(os.path.join(volume_dir, "info.cfg"), "w") as fh:
@@ -165,13 +173,12 @@ class BluRayWriter(object):
         subprocess.check_call(["umount", self.path])
         self.mounted = False
         # Burn it
-        print("BURN")
-        shutil.copyfile(self.image_path, "/tmp/result.udf")
+        subprocess.check_call(["cdrecord", "-v", "-dao", "driveropts=burnfree", "dev=%s" % self.device, self.image_path])
 
     def cleanup(self):
-        if hasattr(self, "image_path"):
-            os.unlink(self.image_path)
         if hasattr(self, "path"):
             if self.mounted:
                 subprocess.check_call(["umount", "-fl", self.path])
             os.rmdir(self.path)
+        if hasattr(self, "image_path"):
+            os.unlink(self.image_path)
