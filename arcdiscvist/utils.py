@@ -1,4 +1,5 @@
 import os
+import stat
 
 
 def human_size(num, suffix='B'):
@@ -29,3 +30,7 @@ def get_fs_type(path):
         if path in partition:
             return partition[path]
     return ("unknown", "none")
+
+
+def is_block_device(path):
+    return stat.S_ISBLK(os.stat(path).st_mode)

@@ -108,13 +108,17 @@ class Index(object):
             result[path][0].append(volume)
         return result
 
-    def file_volumes(self, path):
+    def file_volumes(self, path, ontype=None):
         """
         Returns a list of volume labels the given file path is present on, if any.
         """
         cursor = self.conn.cursor()
         result = []
-        for row in cursor.execute("SELECT volume FROM Files WHERE path = ?", (path, )):
+        if ontype is not None:
+            query = cursor.execute("SELECT volume FROM Files INNER JOIN Volumes ON volume = label WHERE path = ? AND Volumes.type = ?", (path, ontype))
+        else:
+            query = cursor.execute("SELECT volume FROM Files WHERE path = ?", (path, ))
+        for row in query:
             result.append(row[0])
         return result
 
@@ -146,7 +150,7 @@ class Index(object):
         if fstype in ["fuseblk", "ext3"]:
             volume.set_type("hdd")
         elif fstype in ["udf"]:
-            volume.set_type("bluray")
+            volume.set_type("optical")
         else:
             print("Cannot determine volume type of %s, on %s" % (volume_directory.label, mountpoint))
             volume.set_type(None)
@@ -176,7 +180,7 @@ class Volume(object):
         Returns an iterable of files, optionally filtered by paths.
         """
         cursor = self.index.conn.cursor()
-        for row in cursor.execute("SELECT path, size, modified FROM Files WHERE volume = ?", self.label):
+        for row in cursor.execute("SELECT path, size, modified FROM Files WHERE volume = ?", [self.label]):
             yield File(
                 self,
                 row[0],

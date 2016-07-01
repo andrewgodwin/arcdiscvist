@@ -82,6 +82,12 @@ class VolumeDirectory(object):
         assert self.label == config['volume']['label']
         return datetime.datetime.fromtimestamp(int(config['volume']['created']))
 
+    def sha1(self):
+        config = configparser.ConfigParser()
+        config.read(os.path.join(self.path, "info.cfg"))
+        assert self.label == config['volume']['label']
+        return config['volume'].get('sha1', None)
+
     def size(self):
         result = 0
         for name in os.listdir(self.path):
@@ -93,5 +99,21 @@ class VolumeDirectory(object):
             for member in tar.getmembers():
                 yield member
 
-    def verify(self):
+    def par2_verify(self):
         subprocess.check_call(["par2", "verify", os.path.join(self.path, "parity.par2")])
+
+    def calculate_sha1(self):
+        return subprocess.check_output([
+            "sha1sum",
+            os.path.join(self.path, "data.tar")
+        ]).strip().split()[0]
+
+    def sha1_verify(self):
+        """
+        Verifies the volume according to the SHA1 checksum. Returns True for
+        verified, False for corrupt, and None if no checksum is present to check.
+        """
+        sha1sum = self.sha1()
+        if sha1sum is None:
+            return None
+        return sha1sum == self.calculate_sha1()

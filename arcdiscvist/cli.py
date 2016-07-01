@@ -3,11 +3,13 @@ import sys
 import argparse
 import logging
 import importlib
+import tempfile
+import subprocess
 
 from .color import red, green, cyan, yellow
 from .config import Config
 from .builder import Builder
-from .utils import human_size
+from .utils import human_size, is_block_device
 from .exceptions import ConfigError, BuildError
 
 logger = logging.getLogger(__name__)
@@ -45,8 +47,28 @@ class CommandLineInterface(object):
             '--yes',
             action="store_true",
             dest='yes',
-            help='Don\' prompt for confirmations',
+            help='Don\'t prompt for confirmations',
             default=False,
+        )
+        self.parser.add_argument(
+            '-r',
+            '--redundancy',
+            type=int,
+            help='Level of parity redundancy in percent',
+            default=5,
+        )
+        self.parser.add_argument(
+            '-c',
+            '--copies',
+            type=int,
+            help='Minimum number of copies to ensure',
+            default=1,
+        )
+        self.parser.add_argument(
+            '-t',
+            '--type',
+            help='Type of volume storage to ensure copies are on',
+            default=None,
         )
 
     # Nice output formatting
@@ -84,6 +106,7 @@ class CommandLineInterface(object):
             args = self.parser.parse_args(args)
             self.config = Config()
             self.noninteractive = args.yes
+            self.args = args
             if self.noninteractive:
                 self.info("Running in noninteractive mode")
             if args.command == "ls":
@@ -105,13 +128,21 @@ class CommandLineInterface(object):
         device = args[0]
         filters = args[1:]
         # Work out where we're building
-        builder = Builder(self.config.source(), self.config.index())
+        builder = Builder(
+            self.config.source(),
+            self.config.index(),
+            redundancy=self.args.redundancy,
+            copies=self.args.copies,
+            ontype=self.args.type,
+        )
         self.info("Examining target device...")
         builder.prep_writer(device)
-        self.success(" > Target is type %s, size %s" % (
+        self.success(" > Target is type %s, size %s, redundancy %i%%" % (
             builder.writer.type,
             human_size(builder.writer.size),
+            builder.redundancy,
         ))
+        self.info(" - Label will be %s" % builder.volume_label)
         # Gather files
         self.info("Gathering files...")
         builder.gather_files(filters)
@@ -131,41 +162,53 @@ class CommandLineInterface(object):
                 else:
                     self.fatal("User aborted.")
         # Run build
+        self.info("Beginning build of volume %s" % builder.volume_label)
         def progress(step, state):
-            if step == "prep":
-                if state == "start":
-                    self.info("Prepping destination...")
-                elif state == "end":
-                    self.success(" > Done.")
-            elif step == "copy":
-                if state == "start":
-                    self.info("Copying files...")
-                elif state == "end":
-                    self.success("\n > Done.")
-            elif step == "parity":
-                if state == "start":
-                    self.info("Creating parity file...")
-                elif state == "end":
-                    self.success(" > Done.")
-            elif step == "commit":
-                if state == "start":
-                    if builder.writer.burn:
-                        self.info("Burning media...")
-                    else:
-                        self.info("Syncing disk...")
-                elif state == "end":
-                    self.success(" > Done.")
+            if state == "end":
+                if step == "copy":
+                    self.info("")
+                self.success(" > Done.")
+            elif step == "prep" and state == "start":
+                self.info("Prepping destination...")
+            elif step == "copy" and state == "start":
+                self.info("Copying files...")
+            elif step == "parity" and state == "start":
+                self.info("Creating parity file...")
+            elif step == "meta" and state == "start":
+                self.info("Writing meta information and checksum...")
+            elif step == "index" and state == "start":
+                self.info("Indexing new volume...")
+            elif step == "index" and state == "fail":
+                self.warning("Cannot index new volume. Please do it manually.")
+            elif step == "commit" and state == "start":
+                if builder.writer.burn:
+                    self.info("Burning media...")
+                else:
+                    self.info("Syncing disk...")
             elif step == "copyfile":
                 self.info_replace(" - Copying %i/%i: %s" % state)
         builder.build(progress)
         self.info("Created new volume %s" % builder.volume_label)
 
-    def command_index(self):
-        index = self.config.index()
-        for volume in self.config.visible_volumes():
-            self.info("Indexing volume %s..." % volume.label)
-            added = index.index_volume_directory(volume)
-            self.success(" > %s files indexed." % added)
+    def command_index(self, path=None):
+        # If they passed in a device path, mount it temporarily
+        device_path = None
+        if is_block_device(path):
+            device_path = path
+            path = tempfile.mkdtemp(prefix="arcd-imnt-")
+            self.info("Mounting %s to read it..." % device_path)
+            subprocess.check_call(["mount", device_path, path])
+        try:
+            index = self.config.index()
+            for volume in self.config.visible_volumes():
+                if path and not volume.path.startswith(path):
+                    continue
+                self.info("Indexing volume %s..." % volume.label)
+                added = index.index_volume_directory(volume)
+                self.success(" > %s files indexed." % added)
+        finally:
+            if device_path:
+                subprocess.check_call(["umount", device_path])
 
     def command_list(self, dirname=""):
         self._print_search_files(self.config.index().file_list(dirname))
@@ -199,15 +242,35 @@ class CommandLineInterface(object):
                 self.fatal("No volume with label %s" % label)
         else:
             volumes = self.config.index().volumes()
+        # Get currently visible volumes
+        visible_labels = {volume.label for volume in self.config.visible_volumes()}
         # Print output
-        fmt = "%-10s %-10s %-20s %s"
-        print(cyan(fmt % ("LABEL", "SIZE", "CREATED", "LOCATION")))
+        fmt = "%-10s %-3s %-10s %-20s %-15s %s"
+        print(cyan(fmt % ("LABEL", "VIS", "SIZE", "CREATED", "TYPE", "LOCATION")))
         for volume in sorted(volumes, key=lambda v: v.label):
             print(fmt % (
                 volume.label,
+                green("\u2713  ") if volume.label in visible_labels else red("\u00d7  "),
                 human_size(volume.size),
                 volume.created,
+                volume.type or "",
                 volume.location or "",
+            ))
+
+    def command_volumels(self, label):
+        """
+        Lists what's on a volume.
+        """
+        volume = self.config.index().volume(label)
+        if volume is None:
+            self.fatal("No volume with label %s" % label)# Print output
+        fmt = "%-20s %-10s %s"
+        print(cyan(fmt % ("MODIFIED", "SIZE", "PATH")))
+        for file in volume.files():
+            print(fmt % (
+                file.modified,
+                human_size(file.size),
+                file.path,
             ))
 
     def command_location(self, label, location):
@@ -216,6 +279,13 @@ class CommandLineInterface(object):
             self.fatal("No volume with label %s" % label)
         volume.set_location(location)
         self.success(" > Set location of volume %s" % label)
+
+    def command_voltype(self, label, voltype):
+        volume = self.config.index().volume(label)
+        if volume is None:
+            self.fatal("No volume with label %s" % label)
+        volume.set_type(voltype)
+        self.success(" > Set type of volume %s" % label)
 
     def command_destroyed(self, label):
         self.config.index().volume(label).destroyed()
@@ -229,5 +299,14 @@ class CommandLineInterface(object):
             if label and volume.label != label:
                 continue
             self.info("Verifying volume %s..." % volume.label)
-            volume.verify()
-            self.success(" > Done.")
+            # Try SHA1 verify first
+            sha1_result = volume.sha1_verify()
+            if sha1_result is True:
+                self.success(" > Volume checksum matches.")
+                continue
+            elif sha1_result is False:
+                self.error(" ! Volume corrupted - SHA1 mismatch.")
+                continue
+            # Then try PAR2 verify
+            self.info(" - No checksum, running PAR2 verify")
+            volume.par2_verify()
