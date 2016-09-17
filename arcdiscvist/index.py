@@ -127,7 +127,7 @@ class Index(object):
         Returns a new, unused volume label.
         """
         while True:
-            label = "".join(random.choice("ABCDEFGHKMNPQRSTUVWXYZ") for i in range(6))
+            label = "".join(random.choice("AABCDEEFGHIIKMNOOPQRSTUUVWXYYZ") for i in range(6))
             if self.volume(label) is None:
                 return label
 
