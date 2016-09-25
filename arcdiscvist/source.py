@@ -9,8 +9,6 @@ class Source(object):
 
     def __init__(self, path):
         self.path = os.path.abspath(path.rstrip("/"))
-        if isinstance(self.path, str):
-            self.path = self.path.encode("utf8")
 
     def files(self, filters=None):
         """
@@ -30,6 +28,8 @@ class Source(object):
                     dirnames.remove(dirname)
             # Yield file objects that match.
             for filename in filenames:
+                if filename.startswith("arcdiscvist-"):
+                    continue
                 filepath = os.path.abspath(os.path.join(curpath, filename))
                 yield filepath[len(self.path) + 1:]
 
