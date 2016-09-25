@@ -119,6 +119,17 @@ class CommandLineInterface(object):
         except (ConfigError, BuildError) as e:
             self.fatal(str(e))
 
+    def command_help(self, *args):
+        """
+        Shows help about commands.
+        """
+        fmt = "%-25s %s"
+        for attrname in dir(self):
+            if attrname.startswith("command_"):
+                docstring = getattr(self, attrname).__doc__ or ""
+                description = docstring.strip().split("\n")[0].strip()
+                print(fmt % (cyan(attrname[8:]), description))
+
     def command_build(self, *args):
         """
         Builds new volumes.
@@ -191,6 +202,9 @@ class CommandLineInterface(object):
         self.info("Created new volume %s" % builder.volume_label)
 
     def command_index(self, path=None):
+        """
+        Indexes available volumes.
+        """
         # If they passed in a device path, mount it temporarily
         device_path = None
         if is_block_device(path):
@@ -211,9 +225,15 @@ class CommandLineInterface(object):
                 subprocess.check_call(["umount", device_path])
 
     def command_list(self, dirname=""):
+        """
+        Lists directories in the virtual filesystem.
+        """
         self._print_search_files(self.config.index().file_list(dirname))
 
     def command_find(self, pattern):
+        """
+        Finds files by name or pattern in the virtual filesystem.
+        """
         self._print_search_files(self.config.index().file_find(pattern))
 
     def _print_search_files(self, files):
@@ -236,6 +256,9 @@ class CommandLineInterface(object):
     ### VOLUME MANAGEMENT ###
 
     def command_volumes(self, label=None):
+        """
+        Lists known volumes.
+        """
         if label:
             volumes = [self.config.index().volume(label)]
             if volumes[0] is None:
@@ -274,6 +297,9 @@ class CommandLineInterface(object):
             ))
 
     def command_location(self, label, location):
+        """
+        Shows/sets the location field for a volume.
+        """
         volume = self.config.index().volume(label)
         if volume is None:
             self.fatal("No volume with label %s" % label)
@@ -281,6 +307,9 @@ class CommandLineInterface(object):
         self.success(" > Set location of volume %s" % label)
 
     def command_voltype(self, label, voltype):
+        """
+        Shows/sets the type field for a volume.
+        """
         volume = self.config.index().volume(label)
         if volume is None:
             self.fatal("No volume with label %s" % label)
@@ -288,6 +317,9 @@ class CommandLineInterface(object):
         self.success(" > Set type of volume %s" % label)
 
     def command_destroyed(self, label):
+        """
+        Marks a volume as destroyed and removes it from the index.
+        """
         self.config.index().volume(label).destroyed()
         self.success(" > %s marked as destroyed." % label)
 
