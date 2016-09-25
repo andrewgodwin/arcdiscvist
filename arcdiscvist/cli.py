@@ -146,6 +146,8 @@ class CommandLineInterface(object):
         Builds new volumes.
 
         Usage: build [--type=x] [<volume_target>] <path> [<path>, ...]
+
+        Type recommended to be one of "optical", "hdd"
         """
         if len(args) < 1:
             self.fatal("You must provide a target device path")
