@@ -9,6 +9,8 @@ class Source(object):
 
     def __init__(self, path):
         self.path = os.path.abspath(path.rstrip("/"))
+        if isinstance(self.path, str):
+            self.path = self.path.encode("utf8")
 
     def files(self, filters=None):
         """
