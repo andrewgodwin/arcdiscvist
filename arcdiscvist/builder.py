@@ -82,20 +82,19 @@ class Builder(object):
             progress("copy", "end")
             # Create parity set
             if self.redundancy:
-                parity_dir = tempfile.mkdtemp(prefix="arcd-par-")
                 progress("parity", "start")
                 subprocess.check_call([
                     "par2", "create", "-b1000", "-r%s" % self.redundancy, "-n1", "-u", "-m4096",
-                    os.path.join(parity_dir, "parity.par2"),
+                    os.path.join(self.writer.volume_path, "parity.par2"),
                     tar_path,
                 ])
-                for name in os.listdir(parity_dir):
-                    shutil.copyfile(
-                        os.path.join(parity_dir, name),
-                        os.path.join(self.writer.volume_path, name),
-                    )
-                    os.unlink(os.path.join(parity_dir, name))
-                os.rmdir(parity_dir)
+                #for name in os.listdir(parity_dir):
+                #    shutil.copyfile(
+                #        os.path.join(parity_dir, name),
+                #        os.path.join(self.writer.volume_path, name),
+                #    )
+                #    os.unlink(os.path.join(parity_dir, name))
+                #os.rmdir(parity_dir)
                 progress("parity", "end")
             # Write volume info file
             progress("meta", "start")
