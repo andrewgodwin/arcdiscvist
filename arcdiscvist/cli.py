@@ -4,6 +4,7 @@ import argparse
 import logging
 import importlib
 import tempfile
+import textwrap
 import subprocess
 
 from .color import red, green, cyan, yellow
@@ -29,10 +30,6 @@ class CommandLineInterface(object):
         self.parser.add_argument(
             "command",
             help="Command to run",
-        )
-        self.parser.add_argument(
-            "subargs",
-            nargs=argparse.REMAINDER,
         )
         self.parser.add_argument(
             '-v',
@@ -69,6 +66,10 @@ class CommandLineInterface(object):
             '--type',
             help='Type of volume storage to ensure copies are on',
             default=None,
+        )
+        self.parser.add_argument(
+            "subargs",
+            nargs=argparse.REMAINDER,
         )
 
     # Nice output formatting
@@ -119,20 +120,32 @@ class CommandLineInterface(object):
         except (ConfigError, BuildError) as e:
             self.fatal(str(e))
 
-    def command_help(self, *args):
+    def command_help(self, name=None, *args):
         """
         Shows help about commands.
+
+        Usage: help [<command_name>]
         """
-        fmt = "%-25s %s"
-        for attrname in dir(self):
-            if attrname.startswith("command_"):
-                docstring = getattr(self, attrname).__doc__ or ""
-                description = docstring.strip().split("\n")[0].strip()
-                print(fmt % (cyan(attrname[8:]), description))
+        if name:
+            # Show specific command help
+            try:
+                print(textwrap.dedent(getattr(self, "command_%s" % name).__doc__).strip())
+            except AttributeError:
+                print(red("No command %s" % name))
+        else:
+            # Summarise all commands
+            fmt = "%-25s %s"
+            for attrname in dir(self):
+                if attrname.startswith("command_"):
+                    docstring = getattr(self, attrname).__doc__ or ""
+                    description = docstring.strip().split("\n")[0].strip()
+                    print(fmt % (cyan(attrname[8:]), description))
 
     def command_build(self, *args):
         """
         Builds new volumes.
+
+        Usage: build [--type=x] [<volume_target>] <path> [<path>, ...]
         """
         if len(args) < 1:
             self.fatal("You must provide a target device path")
@@ -204,6 +217,8 @@ class CommandLineInterface(object):
     def command_index(self, path=None):
         """
         Indexes available volumes.
+
+        Usage: index [<path>]
         """
         # If they passed in a device path, mount it temporarily
         device_path = None
@@ -227,12 +242,16 @@ class CommandLineInterface(object):
     def command_list(self, dirname=""):
         """
         Lists directories in the virtual filesystem.
+
+        Usage: list [<path>]
         """
         self._print_search_files(self.config.index().file_list(dirname))
 
     def command_find(self, pattern):
         """
         Finds files by name or pattern in the virtual filesystem.
+
+        Usage: find <pattern>
         """
         self._print_search_files(self.config.index().file_find(pattern))
 
@@ -258,6 +277,8 @@ class CommandLineInterface(object):
     def command_volumes(self, label=None):
         """
         Lists known volumes.
+
+        Usage: volumes [<label>]
         """
         if label:
             volumes = [self.config.index().volume(label)]
@@ -283,6 +304,8 @@ class CommandLineInterface(object):
     def command_volumels(self, label):
         """
         Lists what's on a volume.
+
+        Usage: volumels <label>
         """
         volume = self.config.index().volume(label)
         if volume is None:
@@ -299,6 +322,8 @@ class CommandLineInterface(object):
     def command_location(self, label, location):
         """
         Shows/sets the location field for a volume.
+
+        Usage: location <label> [<new_value>]
         """
         volume = self.config.index().volume(label)
         if volume is None:
@@ -309,6 +334,8 @@ class CommandLineInterface(object):
     def command_voltype(self, label, voltype):
         """
         Shows/sets the type field for a volume.
+
+        Usage: voltype <label> [<new_value>]
         """
         volume = self.config.index().volume(label)
         if volume is None:
@@ -319,6 +346,8 @@ class CommandLineInterface(object):
     def command_destroyed(self, label):
         """
         Marks a volume as destroyed and removes it from the index.
+
+        Usage: destroyed <label>
         """
         self.config.index().volume(label).destroyed()
         self.success(" > %s marked as destroyed." % label)
@@ -326,6 +355,8 @@ class CommandLineInterface(object):
     def command_verify(self, label=None):
         """
         Runs verification on visible volumes.
+
+        Usage: verify [<label>]
         """
         for volume in self.config.visible_volumes():
             if label and volume.label != label:
