@@ -21,7 +21,7 @@ class Source(object):
                 dirbits = os.path.join(curpath, dirname)[len(self.path)+1:].split("/")
                 for f in filters:
                     fbits = f.strip("/").split("/")
-                    complen = len(fbits)
+                    complen = min(len(dirbits), len(fbits))
                     if dirbits[:complen] == fbits[:complen]:
                         break
                 else:
@@ -31,6 +31,12 @@ class Source(object):
                 if filename.startswith("arcdiscvist-"):
                     continue
                 filepath = os.path.abspath(os.path.join(curpath, filename))
+                # Make sure this file is all the way under a filter
+                for filter in filters:
+                    if filepath.startswith(os.path.join(self.path, filter)):
+                        break
+                else:
+                    continue
                 yield filepath[len(self.path) + 1:]
 
     def size(self, path):
