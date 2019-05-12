@@ -21,7 +21,7 @@ class Source(object):
                 dirbits = os.path.join(curpath, dirname)[len(self.path)+1:].split("/")
                 for f in filters:
                     fbits = f.strip("/").split("/")
-                    complen = min(len(fbits), len(dirbits))
+                    complen = len(fbits)
                     if dirbits[:complen] == fbits[:complen]:
                         break
                 else:
