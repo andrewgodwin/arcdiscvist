@@ -19,7 +19,8 @@ setup(
     zip_safe=False,
     packages=find_packages(),
     include_package_data=True,
+    install_requires=["click"],
     entry_points={'console_scripts': [
-        'arcdiscvist = arcdiscvist.cli:CommandLineInterface.entrypoint',
+        'arcdiscvist = arcdiscvist.cli:main',
     ]},
 )

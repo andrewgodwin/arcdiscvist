@@ -1,386 +1,231 @@
 import click
+import datetime
+import os
+import shlex
+import subprocess
+import sys
+import tarfile
 
 from .builder import Builder, Scanner
 from .config import Config
+from .utils import human_size
 
 
-@click.group(invoke_without_command=True)
-@click.pass_context()
-def main(ctx):
-    ctx.config = Config()
+config = Config()
+
+
+@click.group()
+def main():
+    pass
 
 
 @main.command()
-@click.pass_context()
-@click.option('-s', '--size', type=int, default=4, help="Size of the volume in GB")
+@click.option('-s', '--size', type=int, default=10, help="Size of the volume in GB")
+@click.option('-o', '--output', default=".", help="Output path for new volumes")
+@click.option('-y', '--yes', is_flag=True, default=False)
+@click.option('-c', '--compress', is_flag=True, default=False)
 @click.argument('patterns', nargs=-1)
-def build(ctx, patterns, size):
+def build(patterns, size, output, yes, compress):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
     # Find the paths
-    with click.progressbar(label="Scanning files")
-        paths = Scanner(ctx.config.source_path, patterns).volume_paths(ctx.config.index, size * (1024 ** 3))
+    click.echo("Scanning files... ", nl=False)
+    paths, size_used = Scanner(config.source_path, patterns).volume_paths(config.index, size * (1024 ** 3))
+    click.secho("Done", fg="green")
+    if not paths:
+        click.secho("No files found to add.", fg="yellow")
+        return
     # Print what we found
-    click.echo("Found 
-    # Build 
+    for path in paths:
+        click.echo("> " + click.style(path, fg="blue"))
+    click.echo("%s files, %s" % (len(paths), human_size(size_used)))
+    # Prompt to continue
+    if not yes:
+        if not click.confirm("Proceed with build?"):
+            return
+    click.echo()
+    # Select an unused volume label
+    volume_label = config.index.new_volume_label()
+    # Build the volume
+    final_path = Builder(volume_label, output).build(config.source_path, paths, compression=compress)
+    click.echo(click.style("Volume built as %s" % final_path, fg="green"))
+    # Auto-index it
+    click.echo("\nIndexing new volume...")
+    index([final_path])
 
-class CommandLineInterface(object):
+
+## File querying commands
+
+
+@main.command()
+@click.argument('path', default="")
+def ls(path):
     """
-    Acts as the main CLI entry point.
+    Lists the context of the index at the given path.
     """
-
-    description = "Archive volume creation and indexing tool"
-
-    def __init__(self):
-        self.parser = argparse.ArgumentParser(
-            description=self.description,
-        )
-        self.parser.add_argument(
-            "command",
-            help="Command to run",
-        )
-        self.parser.add_argument(
-            '-v',
-            '--volume',
-            nargs='*',
-            dest='volumes',
-            help='Paths to volumes',
-            default=None,
-        )
-        self.parser.add_argument(
-            '-y',
-            '--yes',
-            action="store_true",
-            dest='yes',
-            help='Don\'t prompt for confirmations',
-            default=False,
-        )
-        self.parser.add_argument(
-            '-r',
-            '--redundancy',
-            type=int,
-            help='Level of parity redundancy in percent',
-            default=5,
-        )
-        self.parser.add_argument(
-            '-c',
-            '--copies',
-            type=int,
-            help='Minimum number of copies to ensure',
-            default=1,
-        )
-        self.parser.add_argument(
-            '-t',
-            '--type',
-            help='Type of volume storage to ensure copies are on',
-            default=None,
-        )
-        self.parser.add_argument(
-            "subargs",
-            nargs=argparse.REMAINDER,
-        )
-
-    # Nice output formatting
-    def info(self, message):
-        print(cyan(message))
-    def warning(self, message):
-        print(yellow(message))
-    def error(self, message):
-        print(red(message))
-    def success(self, message):
-        print(green(message))
-    def fatal(self, message):
-        self.error(message)
-        sys.exit(1)
-    def info_replace(self, message):
-        print(cyan("\r\033[K" + message), end="")
-
-    @classmethod
-    def entrypoint(cls):
-        """
-        Main entrypoint for external starts.
-        """
-        cls().run(sys.argv[1:])
-
-    def run(self, args):
-        """
-        Pass in raw argument list and it will decode them
-        and run the server.
-        """
-        # Check rootness
-        if os.geteuid() != 0:
-            self.fatal("You must run as root.")
-        try:
-            # Decode args and config
-            args = self.parser.parse_args(args)
-            self.config = Config()
-            self.noninteractive = args.yes
-            self.args = args
-            if self.noninteractive:
-                self.info("Running in noninteractive mode")
-            if args.command == "ls":
-                args.command = "list"
-            # Run right subcommand
-            handler = getattr(self, "command_%s" % args.command, None)
-            if not handler:
-                self.fatal("Unknown command %s" % args.command)
-            handler(*args.subargs)
-        except (ConfigError, BuildError) as e:
-            self.fatal(str(e))
-
-    def command_help(self, name=None, *args):
-        """
-        Shows help about commands.
-
-        Usage: help [<command_name>]
-        """
-        if name:
-            # Show specific command help
-            try:
-                print(textwrap.dedent(getattr(self, "command_%s" % name).__doc__).strip())
-            except AttributeError:
-                print(red("No command %s" % name))
+    # Normalise the path
+    path = path.strip("/")
+    path_depth = len(path.split("/"))
+    if not path:
+        path_depth = 0
+    # Get the set of files/dirs as a dict (name: attrs)
+    files = {}
+    for entry_path, entry_attrs in config.index.files(path_glob="%s*" % path).items():
+        entry_path_parts = entry_path.split("/")
+        # Is it a file at our level?
+        if len(entry_path_parts) - 1 == path_depth:
+            files[entry_path_parts[-1]] = entry_attrs
+        # Is it an implicit directory
         else:
-            # Summarise all commands
-            fmt = "%-25s %s"
-            for attrname in dir(self):
-                if attrname.startswith("command_"):
-                    docstring = getattr(self, attrname).__doc__ or ""
-                    description = docstring.strip().split("\n")[0].strip()
-                    print(fmt % (cyan(attrname[8:]), description))
+            files[entry_path_parts[path_depth]] = {"size": "dir"}
+    # Print the resulting table
+    print_files(files)
 
-    def command_build(self, *args):
-        """
-        Builds new volumes.
 
-        Usage: build [--type=x] [<volume_target>] <path> [<path>, ...]
+@main.command()
+@click.argument('pattern')
+def find(pattern):
+    """
+    Finds all files matching the pattern
+    """
+    files = config.index.files(path_glob="*%s*" % pattern)
+    print_files(files)
 
-        Type recommended to be one of "optical", "hdd"
-        """
-        if len(args) < 1:
-            self.fatal("You must provide a target device path")
-        device = args[0]
-        filters = args[1:]
-        # Work out where we're building
-        builder = Builder(
-            self.config.source(),
-            self.config.index(),
-            redundancy=self.args.redundancy,
-            copies=self.args.copies,
-            ontype=self.args.type,
-        )
-        self.info("Examining target device...")
-        builder.prep_writer(device)
-        self.success(" > Target is type %s, size %s, redundancy %i%%" % (
-            builder.writer.type,
-            human_size(builder.writer.size),
-            builder.redundancy,
-        ))
-        self.info(" - Label will be %s" % builder.volume_label)
-        # Gather files
-        self.info("Gathering files...")
-        builder.gather_files(filters)
-        for file in builder.files:
-            self.info(" - %s" % file)
-        if not builder.files:
-            self.fatal(" > No files found.")
-        self.success(" > Gathered %s files totalling %s" % (
-            len(builder.files),
-            human_size(builder.total_size),
-        ))
-        if not self.noninteractive:
-            while True:
-                response = input("Proceed with build and burn? [y] ")
-                if response.lower() == "y" or not response:
-                    break
-                else:
-                    self.fatal("User aborted.")
-        # Run build
-        self.info("Beginning build of volume %s" % builder.volume_label)
-        def progress(step, state):
-            if state == "end":
-                if step == "copy":
-                    self.info("")
-                self.success(" > Done.")
-            elif step == "prep" and state == "start":
-                self.info("Prepping destination...")
-            elif step == "copy" and state == "start":
-                self.info("Copying files...")
-            elif step == "parity" and state == "start":
-                self.info("Creating parity file...")
-            elif step == "meta" and state == "start":
-                self.info("Writing meta information and checksum...")
-            elif step == "index" and state == "start":
-                self.info("Indexing new volume...")
-            elif step == "index" and state == "fail":
-                self.warning("Cannot index new volume. Please do it manually.")
-            elif step == "commit" and state == "start":
-                if builder.writer.burn:
-                    self.info("Burning media...")
-                else:
-                    self.info("Syncing disk...")
-            elif step == "copyfile":
-                self.info_replace(" - Copying %i/%i: %s" % state)
-        builder.build(progress)
-        self.info("Created new volume %s" % builder.volume_label)
 
-    def command_index(self, path=None):
-        """
-        Indexes available volumes.
+def print_files(files):
+    output_format = "%-10s %-8s %s"
+    click.secho(output_format % ("SIZE", "VOLUME", "FILENAME"), fg="cyan")
+    for name, attrs in sorted(files.items()):
+        if attrs["size"] == "dir":
+            click.echo(output_format % (
+                "dir",
+                "",
+                name,
+            ))
+        else:
+            click.echo(output_format % (
+                human_size(attrs["size"]),
+                attrs["volume_label"],
+                name,
+            ))
 
-        Usage: index [<path>]
-        """
-        # If they passed in a device path, mount it temporarily
-        device_path = None
-        if is_block_device(path):
-            device_path = path
-            path = tempfile.mkdtemp(prefix="arcd-imnt-")
-            self.info("Mounting %s to read it..." % device_path)
-            subprocess.check_call(["mount", device_path, path])
-        try:
-            index = self.config.index()
-            for volume in self.config.visible_volumes():
-                if path and not volume.path.startswith(path):
+
+## File restore commands
+
+
+@main.command
+@click.argument('path')
+@click.argument('destination')
+def extract(path):
+    """
+    Extracts a single file by path to a named destination
+    """
+    pass
+
+
+## Volume commands
+
+
+@main.group()
+def volume():
+    pass
+
+
+@volume.command()
+@click.argument('paths', nargs=-1)
+def index(paths):
+    """
+    Adds one or more volumes to the index
+    """
+    for path in paths:
+        # Extract the volume's label and SHA from its filename
+        label, sha1, extension = os.path.basename(path).split(".", 2)
+        assert extension in ("tar", "tar.gz", "tar.bz2")
+        assert len(sha1) == 40
+        # See if the volume is already in there
+        if config.index.volumes(label=label):
+            click.secho("%s already indexed" % label, fg="yellow")
+            continue
+        # Add each file in the volume
+        added_copies = 0
+        with tarfile.open(path, "r") as tar:
+            for info in tar:
+                if info.name.startswith("__arcdiscvist"):
                     continue
-                self.info("Indexing volume %s..." % volume.label)
-                added = index.index_volume_directory(volume)
-                self.success(" > %s files indexed." % added)
-        finally:
-            if device_path:
-                subprocess.check_call(["umount", device_path])
+                config.index.add_file_copy(info.name, info.size, info.mtime, label)
+                added_copies += 1
+        # Add it in
+        config.index.add_volume(label, sha1, os.path.getsize(path), os.stat(path).st_mtime)
+        click.secho("%s added, with %i files" % (label, added_copies))
 
-    def command_list(self, dirname=""):
-        """
-        Lists directories in the virtual filesystem.
 
-        Usage: list [<path>]
-        """
-        self._print_search_files(self.config.index().file_list(dirname))
-
-    def command_find(self, pattern):
-        """
-        Finds files by name or pattern in the virtual filesystem.
-
-        Usage: find <pattern>
-        """
-        self._print_search_files(self.config.index().file_find(pattern))
-
-    def _print_search_files(self, files):
-        fmt = "%-10s %-5s %s"
-        print(cyan(fmt % ("SIZE", "VOLS", "NAME")))
-        for path, details in sorted(files.items()):
-            if details[0]:
-                print(fmt % (
-                    human_size(details[1]),
-                    len(details[0]),
-                    path,
-                ))
-            else:
-                print(fmt % (
-                    "<dir>",
-                    "",
-                    path + "/",
-                ))
-
-    ### VOLUME MANAGEMENT ###
-
-    def command_volumes(self, label=None):
-        """
-        Lists known volumes.
-
-        Usage: volumes [<label>]
-        """
-        if label:
-            volumes = [self.config.index().volume(label)]
-            if volumes[0] is None:
-                self.fatal("No volume with label %s" % label)
+@volume.command()
+@click.argument('paths', nargs=-1)
+def validate(paths):
+    """
+    Validates one or more volume files by hash
+    """
+    all_good = True
+    for path in paths:
+        # Extract the volume's label and SHA from its filename
+        label, sha1, extension = os.path.basename(path).split(".", 2)
+        assert extension in ("tar", "tar.gz", "tar.bz2")
+        assert len(sha1) == 40
+        # Different handling for compressed files!
+        click.echo("Validating %s... " % label, nl=False)
+        if extension == "tar.gz":
+            calculated_sha1 = subprocess.check_output("gzip -dc %s | sha1sum" % shlex.quote(path), shell=True)
+        elif extension == "tar.bz2":
+            calculated_sha1 = subprocess.check_output("bzip2 -dc %s | sha1sum" % shlex.quote(path), shell=True)
         else:
-            volumes = self.config.index().volumes()
-        # Get currently visible volumes
-        visible_labels = {volume.label for volume in self.config.visible_volumes()}
-        # Print output
-        fmt = "%-10s %-3s %-10s %-20s %-15s %s"
-        print(cyan(fmt % ("LABEL", "VIS", "SIZE", "CREATED", "TYPE", "LOCATION")))
-        for volume in sorted(volumes, key=lambda v: v.label):
-            print(fmt % (
-                volume.label,
-                green("\u2713  ") if volume.label in visible_labels else red("\u00d7  "),
-                human_size(volume.size),
-                volume.created,
-                volume.type or "",
-                volume.location or "",
-            ))
+            calculated_sha1 = subprocess.check_output(["sha1sum", path])
+        calculated_sha1 = calculated_sha1.strip().split()[0].decode("ascii")
+        # Say if it was good or not
+        if calculated_sha1 == sha1:
+            click.secho("Valid", fg="green")
+        else:
+            click.secho("Invalid (%s)" % calculated_sha1, fg="red")
+            all_good = False
+    # Exit appropriately
+    if not all_good:
+        sys.exit(1)
 
-    def command_volumels(self, label):
-        """
-        Lists what's on a volume.
 
-        Usage: volumels <label>
-        """
-        volume = self.config.index().volume(label)
-        if volume is None:
-            self.fatal("No volume with label %s" % label)# Print output
-        fmt = "%-20s %-10s %s"
-        print(cyan(fmt % ("MODIFIED", "SIZE", "PATH")))
-        for file in volume.files():
-            print(fmt % (
-                file.modified,
-                human_size(file.size),
-                file.path,
-            ))
+@volume.command()
+def list():
+    """
+    Lists all volumes
+    """
+    output_format = "%-10s %-20s"
+    click.secho(output_format % ("LABEL", "CREATED"), fg="cyan")
+    for volume in sorted(config.index.volumes(), key=lambda x: x["label"]):
+        click.echo(output_format % (
+            volume["label"],
+            datetime.datetime.fromtimestamp(volume["created"]).strftime("%Y-%m-%d %H:%M:%S"),
+        ))
 
-    def command_location(self, label, location):
-        """
-        Shows/sets the location field for a volume.
 
-        Usage: location <label> [<new_value>]
-        """
-        volume = self.config.index().volume(label)
-        if volume is None:
-            self.fatal("No volume with label %s" % label)
-        volume.set_location(location)
-        self.success(" > Set location of volume %s" % label)
+@volume.command()
+@click.argument('label')
+def contents(label):
+    """
+    Lists the contents of a volume
+    """
+    files = config.index.files(volume_label=label)
+    print_files(files)
 
-    def command_voltype(self, label, voltype):
-        """
-        Shows/sets the type field for a volume.
 
-        Usage: voltype <label> [<new_value>]
-        """
-        volume = self.config.index().volume(label)
-        if volume is None:
-            self.fatal("No volume with label %s" % label)
-        volume.set_type(voltype)
-        self.success(" > Set type of volume %s" % label)
-
-    def command_destroyed(self, label):
-        """
-        Marks a volume as destroyed and removes it from the index.
-
-        Usage: destroyed <label>
-        """
-        self.config.index().volume(label).destroyed()
-        self.success(" > %s marked as destroyed." % label)
-
-    def command_verify(self, label=None):
-        """
-        Runs verification on visible volumes.
-
-        Usage: verify [<label>]
-        """
-        for volume in self.config.visible_volumes():
-            if label and volume.label != label:
-                continue
-            self.info("Verifying volume %s..." % volume.label)
-            # Try SHA1 verify first
-            sha1_result = volume.sha1_verify()
-            if sha1_result is True:
-                self.success(" > Volume checksum matches.")
-                continue
-            elif sha1_result is False:
-                self.error(" ! Volume corrupted - SHA1 mismatch.")
-                continue
-            # Then try PAR2 verify
-            self.info(" - No checksum, running PAR2 verify")
-            volume.par2_verify()
+@volume.command()
+@click.argument('label')
+def remove(label):
+    """
+    Removes a volume and all its file entries from the database
+    """
+    # See if the volume exists
+    if not config.index.volumes(label=label):
+        click.secho("No volume '%s' found" % label, fg="red")
+        return
+    # Delete it
+    config.index.remove_volume(label)
+    click.echo("Volume %s removed" % label)
