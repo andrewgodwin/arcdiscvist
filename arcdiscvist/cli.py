@@ -24,8 +24,9 @@ def main():
 @click.option('-o', '--output', default=".", help="Output path for new volumes")
 @click.option('-y', '--yes', is_flag=True, default=False)
 @click.option('-c', '--compress', is_flag=True, default=False)
+@click.option('--index/--no-index', is_flag=True, default=True, help="Index the volume immediately")
 @click.argument('patterns', nargs=-1)
-def build(patterns, size, output, yes, compress):
+def build(patterns, size, output, yes, compress, index):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
@@ -48,11 +49,12 @@ def build(patterns, size, output, yes, compress):
     # Select an unused volume label
     volume_label = config.index.new_volume_label()
     # Build the volume
-    final_path = Builder(volume_label, output).build(config.source_path, paths, compression=compress)
+    final_path = Builder(volume_label, output).build(config.source_path, paths, size_used, compression=compress)
     click.echo(click.style("Volume built as %s" % final_path, fg="green"))
     # Auto-index it
-    click.echo("\nIndexing new volume...")
-    index([final_path])
+    if index:
+        click.echo("\nIndexing new volume...")
+        index([final_path])
 
 
 ## File querying commands

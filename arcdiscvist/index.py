@@ -83,7 +83,7 @@ class Index(object):
         Returns a new, unused volume label.
         """
         for i in range(10000):
-            label = "".join(random.choice("AAABCDEEEFGHIIKMNOOPQRSTUUVWXYYZ") for i in range(6))
+            label = "".join(random.choice("AABCDEEFGHIIKMNOOPQRSTUUVWXYYZ") for i in range(6))
             if not self.volumes(label=label):
                 return label
         raise ValueError("Could not find spare volume label")

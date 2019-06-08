@@ -4,7 +4,6 @@ import os
 import tempfile
 import tarfile
 import subprocess
-import shutil
 
 
 class Builder:
@@ -21,7 +20,7 @@ class Builder:
         self.label = label
         self.output_dir = output_dir
 
-    def build(self, source_path, paths, compression=False):
+    def build(self, source_path, paths, expected_size, compression=False):
         """
         Builds the target tar
         """
@@ -34,16 +33,17 @@ class Builder:
                     "paths": paths,
                 }, fh)
             # Build the tar file
-            tar_path = os.path.join(dirname, "data.tar")
-            click.echo("Copying files... ", nl=False)
-            with tarfile.open(tar_path, "x") as tar:
-                # Add JSON info file
-                tar.add(json_path, arcname="__arcdiscvist_volume", filter=self.normalize_tar)
-                # Add data files
-                for i, path in enumerate(paths):
-                    click.echo("\rCopying files... %i/%i " % (i + 1, len(paths)), nl=False)
-                    tar.add(os.path.join(source_path, path), arcname=path, filter=self.normalize_tar)
-            click.secho("Done", fg="green")
+            tar_path = os.path.join(self.output_dir, "%s.temp.tar" % self.label)
+            with click.progressbar(length=expected_size, label="Adding files") as bar:
+                with tarfile.open(tar_path, "x") as tar:
+                    # Add JSON info file
+                    tar.add(json_path, arcname="__arcdiscvist_volume", filter=self.normalize_tar)
+                    # Add data files
+                    for i, path in enumerate(paths):
+                        real_path = os.path.join(source_path, path)
+                        tar.add(real_path, arcname=path, filter=self.normalize_tar)
+                        bar.update(os.path.getsize(real_path))
+
             # Calculate the SHA1 hash
             click.echo("Calculating checksum... ", nl=False)
             sha1sum = subprocess.check_output(["sha1sum", tar_path]).strip().split()[0].decode("ascii")
@@ -62,8 +62,10 @@ class Builder:
                 else:
                     click.echo("  Not using compressed version (ratio %.2f%%)" % (ratio * 100))
             # Move it to its final destination
+            click.echo("Moving to output... ", nl=False)
             final_path = os.path.join(self.output_dir, "%s.%s.tar%s" % (self.label, sha1sum, ".gz" if tar_path.endswith(".gz") else ""))
-            shutil.move(tar_path, final_path)
+            os.rename(tar_path, final_path)
+            click.secho("Done", fg="green")
             return final_path
 
     def normalize_tar(self, tarinfo):
