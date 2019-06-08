@@ -1,63 +1,45 @@
-import os
-import shutil
-import subprocess
+import click
+import json
 import tempfile
-import datetime
-import tarfile
-
-from .exceptions import BuildError
-from .writers import UDFImage, DirectDisk, BluRayWriter
-from .config import VolumeDirectory
-from .utils import is_block_device
 
 
-class Builder(object):
+class Builder:
     """
     Creates new volumes
+
+    Volumes are a tar file containing the files to be stored, along with a JSON
+    file containing information about the contents.
+
+    The tar's filename also contains a sha1 hash of the volume.
     """
 
-    def __init__(self, source, index, redundancy=5, copies=1, ontype=None):
-        self.source = source
-        self.index = index
-        self.redundancy = redundancy
-        self.copies = copies
-        self.ontype = ontype
+    def __init__(self, label, output_dir, paths):
+        self.label = label
+        self.output_dir = output_dir
+        self.paths = paths
+        assert target.endswith(".arcdiscvist")
 
-    def prep_writer(self, device):
+    def build(self, progress):
         """
-        Prepares the volume information according to the device
+        Builds the target tar
         """
-        # Decide on a volume label
-        self.volume_label = self.index.new_volume_label()
-        # See what kind of device it is
-        if device.endswith(".udf"):
-            self.writer = UDFImage(device, self.volume_label)
-        elif "=" in device:
-            self.writer = DirectDisk(device, self.volume_label)
-        elif is_block_device(device):
-            self.writer = BluRayWriter(device, self.volume_label)
-        else:
-            raise BuildError("Cannot determine type of target device %s" % device)
-
-    def gather_files(self, filters):
-        """
-        Gathers a set of files into the builder that fit inside `size`.
-        """
-        # Adjust size according to parity values
-        data_size = self.writer.size
-        if self.redundancy:
-            data_size *= (1 - ((self.redundancy + 1) / 100.0))
-        # Set up instance storage
-        self.total_size = 0
-        self.files = []
-        # Gather files
-        for filter in filters:
-            for path in sorted(self.source.files([filter])):
-                if len(self.index.file_volumes(path, ontype=self.ontype)) < self.copies:
-                    pathsize = self.source.size(path)
-                    if pathsize < (data_size - self.total_size):
-                        self.total_size += pathsize
-                        self.files.append(path)
+        with tempfile.TemporaryDirectory(prefix="arc-build-") as dirname:
+            # Write out the JSON file with info
+            json_path = os.path.join(dirname, "arcdiscvist-volume-info.json")
+            with open(json_path, "w") as fh:
+                json.dump({"label": self.label}, fh)
+            # Build the tar file
+            tar_path = os.path.join(dirname, "data.tar")
+            with tarfile.open(tar_path, "w") as tar:
+                with click.progressbar(self.paths, label="Copying files") as bar:
+                    for path in bar:
+                        tar.add(path, arcname=path, filter=self.normalize_tar)
+            # Calculate the SHA1 hash
+            with click.progressbar(label="Calculating checksum"):
+                sha1sum = subprocess.check_output(["sha1sum", tar_path]).strip().split()[0]
+            # Move it to its final destination
+            final_path = os.path.join(self.output_dir, "%s.%s.tar" % (self.label, sha1sum))
+            os.rename(tar_path, final_path)
 
     def normalize_tar(self, tarinfo):
         tarinfo.uid = tarinfo.gid = 0
@@ -66,60 +48,57 @@ class Builder(object):
         tarinfo.mtime = int(tarinfo.mtime)
         return tarinfo
 
-    def build(self, progress):
-        try:
-            # Run writer prep, which results in it having a writeable directory
-            progress("prep", "start")
-            self.writer.prep()
-            progress("prep", "end")
-            # Copy files into target tarball
-            progress("copy", "start")
-            tar_path = os.path.join(self.writer.volume_path, "data.tar")
-            with tarfile.open(tar_path, "w") as tar:
-                for i, path in enumerate(self.files):
-                    progress("copyfile", (i + 1, len(self.files), path))
-                    tar.add(self.source.abspath(path), arcname=path, filter=self.normalize_tar)
-            progress("copy", "end")
-            # Create parity set
-            if self.redundancy:
-                progress("parity", "start")
-                subprocess.check_call([
-                    "par2", "create", "-b1000", "-r%s" % self.redundancy, "-n1", "-u", "-m4096",
-                    os.path.join(self.writer.volume_path, "parity.par2"),
-                    tar_path,
-                ])
-                #for name in os.listdir(parity_dir):
-                #    shutil.copyfile(
-                #        os.path.join(parity_dir, name),
-                #        os.path.join(self.writer.volume_path, name),
-                #    )
-                #    os.unlink(os.path.join(parity_dir, name))
-                #os.rmdir(parity_dir)
-                progress("parity", "end")
-            # Write volume info file
-            progress("meta", "start")
-            sha1sum = subprocess.check_output([
-                "sha1sum",
-                tar_path,
-            ]).strip().split()[0]
-            with open(os.path.join(self.writer.volume_path, "info.cfg"), "w") as fh:
-                fh.write("[volume]\nlabel=%s\n" % self.volume_label)
-                fh.write("created=%s\n" % int(datetime.datetime.utcnow().timestamp()))
-                fh.write("sha1=%s\n" % sha1sum)
-            progress("meta", "end")
-            # Commit image (either umount or burn)
-            progress("commit", "start")
-            self.writer.commit()
-            progress("commit", "end")
-            # Index new image
-            if self.writer.indexable:
-                progress("index", "start")
-                self.writer.prep_index()
-                self.index.index_volume_directory(VolumeDirectory(self.writer.index_path))
-                progress("index", "end")
-            else:
-                progress("index", "fail")
 
-        finally:
-            self.writer.cleanup()
+class Scanner:
+    """
+    Scans the source directory trying to make a file list for the builder.
+    """
 
+    def __init__(self, source_path, patterns):
+        self.source_path = source_path
+        self.patterns = patterns
+
+    def paths(self):
+        """
+        Returns a list of (absolute) paths the builder could pick from.
+        Does not remove items in the index or account for size.
+        """
+        for curpath, dirnames, filenames in os.walk(self.source_path):
+            # Trim out dirnames not in the filter list
+            for dirname in list(dirnames):
+                dirbits = os.path.join(curpath, dirname)[len(self.source_path)+1:].split("/")
+                for f in filters:
+                    fbits = f.strip("/").split("/")
+                    complen = min(len(dirbits), len(fbits))
+                    if dirbits[:complen] == fbits[:complen]:
+                        break
+                else:
+                    dirnames.remove(dirname)
+            # Yield file objects that match.
+            for filename in filenames:
+                if filename.startswith("arcdiscvist-"):
+                    continue
+                filepath = os.path.abspath(os.path.join(curpath, filename))
+                # Make sure this file is all the way under a filter
+                for filter in filters:
+                    if filepath.startswith(os.path.join(self.source_path, filter)):
+                        break
+                else:
+                    continue
+                yield filepath
+                if re;at
+
+    def volume_paths(self, index, size):
+        for filepath in self.paths():
+            # Get the path the index would know it by
+            relative_path = filepath[len(self.path) + 1:]
+            # See if it's in the index (if it's not at all, we skip the SHA hash)
+            if index.files(path_glob=relative_path):
+                # OK, SHA hash it to see if it changed
+
+
+    def file_hash(self, path):
+        """
+        Returns the SHA hash of a file
+        """
+        return subprocess.check_output(["sha1sum", path]).strip()

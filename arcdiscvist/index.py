@@ -18,31 +18,58 @@ class Index(object):
 
     def check_schema(self):
         self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS Volumes (
-                label text PRIMARY KEY,
-                size integer,  -- In bytes
-                created integer,  -- UNIX Timestamp
-                location text,
-                type text
-            )
-        """)
-        self.conn.execute("""
             CREATE TABLE IF NOT EXISTS Files (
                 path text,
-                volume text,
                 size integer,  -- In bytes
                 modified integer,  -- UNIX Timestamp
-                PRIMARY KEY (path, volume),
-                FOREIGN KEY (volume) REFERENCES Volumes(label)
+                PRIMARY KEY (path, sha1)
+            )
+            CREATE TABLE IF NOT EXISTS Volumes (
+                label text,
+                sha1 text,
+                size integer,  -- In bytes
+                created integer,  -- UNIX Timestamp
+                PRIMARY KEY (label)
+            )
+            CREATE TABLE IF NOT EXISTS FileCopy (
+                id integer primary key,
+                file_path text,
+                file_sha1 text,
+                volume_label text,
+                start_byte integer,
+                end_byte integer,
+                FOREIGN KEY (path, sha1) REFERENCES Files(path, sha1),
+                FOREIGN KEY (volume_label) REFERENCES Volumes(label)
             )
         """)
 
-    def volumes(self):
+    def files(self, path_glob=None):
         """
-        Returns an iterable of all volumes.
+        Returns a dict of {file path: {"size": size}, ...}
+        for files that match the query parameters provided.
+        """
+        cursor = self.conn.cursor()
+        result = {}
+        # Work out the query
+        if path_glob:
+            query = "SELECT path, size, modified FROM Files WHERE path GLOB ?", (path_glob,)
+        else:
+            raise ArgumentError("You must supply one filter to files()")
+        # Run the query
+        for path, size, modified in cursor.execute(*query):
+            result[path] = {"size": size, "modified": modified}
+        return result
+
+    def volumes(self, label=None):
+        """
+        Returns an iterable of volumes, optionally filtering by label
         """
         for row in self.conn.execute("SELECT label, size, created, location, type FROM Volumes"):
             yield Volume(self, row[0], row[1],  datetime.datetime.fromtimestamp(row[2]), row[3], row[4])
+
+
+
+
 
     def volume(self, label):
         """

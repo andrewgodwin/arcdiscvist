@@ -1,20 +1,29 @@
-import os
-import sys
-import argparse
-import logging
-import importlib
-import tempfile
-import textwrap
-import subprocess
+import click
 
-from .color import red, green, cyan, yellow
+from .builder import Builder, Scanner
 from .config import Config
-from .builder import Builder
-from .utils import human_size, is_block_device
-from .exceptions import ConfigError, BuildError
 
-logger = logging.getLogger(__name__)
 
+@click.group(invoke_without_command=True)
+@click.pass_context()
+def main(ctx):
+    ctx.config = Config()
+
+
+@main.command()
+@click.pass_context()
+@click.option('-s', '--size', type=int, default=4, help="Size of the volume in GB")
+@click.argument('patterns', nargs=-1)
+def build(ctx, patterns, size):
+    """
+    Builds a volume out of the paths specified and writes it out to disk.
+    """
+    # Find the paths
+    with click.progressbar(label="Scanning files")
+        paths = Scanner(ctx.config.source_path, patterns).volume_paths(ctx.config.index, size * (1024 ** 3))
+    # Print what we found
+    click.echo("Found 
+    # Build 
 
 class CommandLineInterface(object):
     """

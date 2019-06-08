@@ -42,29 +42,15 @@ class Config(object):
         except KeyError:
             raise ConfigError("No index path in config file")
 
-    def source(self):
+    @property
+    def source_path(self):
         """
-        Returns a Source object
+        Returns the source path
         """
         try:
-            return Source(self.config['source']['path'])
+            return self.config['source']['path']
         except KeyError:
             raise ConfigError("No source path in config file")
-
-    def visible_volumes(self):
-        """
-        Returns paths to currently visible volume directories.
-        """
-        with open('/proc/mounts','r') as fh:
-            mountpoints = [line.split()[1] for line in fh.readlines()]
-        for mountpoint in list(mountpoints):
-            mountpoints.append(os.path.join(mountpoint, "arcdiscvist"))
-        for mountpoint in mountpoints:
-            if os.path.isdir(mountpoint):
-                for name in os.listdir(mountpoint):
-                    path = os.path.join(mountpoint, name)
-                    if name.endswith(".arcdiscvist") and os.path.isdir(path):
-                        yield VolumeDirectory(path)
 
 
 class VolumeDirectory(object):
