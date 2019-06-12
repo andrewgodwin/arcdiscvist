@@ -8,6 +8,7 @@ import tarfile
 
 from .builder import Builder, Scanner
 from .config import Config
+from .uploader import Uploader
 from .utils import human_size
 
 
@@ -21,12 +22,11 @@ def main():
 
 @main.command()
 @click.option('-s', '--size', type=int, default=10, help="Size of the volume in GB")
-@click.option('-o', '--output', default=".", help="Output path for new volumes")
 @click.option('-y', '--yes', is_flag=True, default=False)
 @click.option('-c', '--compress', is_flag=True, default=False)
 @click.option('--auto-index/--no-index', is_flag=True, default=True, help="Index the volume immediately")
 @click.argument('patterns', nargs=-1)
-def build(patterns, size, output, yes, compress, auto_index):
+def build(patterns, size, yes, compress, auto_index):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
@@ -49,7 +49,12 @@ def build(patterns, size, output, yes, compress, auto_index):
     # Select an unused volume label
     volume_label = config.index.new_volume_label()
     # Build the volume
-    final_path = Builder(volume_label, output).build(config.source_path, paths, size_used, compression=compress)
+    final_path = Builder(volume_label, config.volumes_path).build(
+        config.source_path,
+        paths,
+        size_used,
+        compression=compress,
+    )
     click.echo(click.style("Volume built as %s" % final_path, fg="green"))
     # Auto-index it
     if auto_index:
@@ -195,16 +200,56 @@ def validate(paths):
 
 
 @volume.command()
+@click.argument('paths', nargs=-1)
+def upload(paths):
+    """
+    Encrypts and uploads volumes to Amazon Glacier
+    """
+    for path in paths:
+        # Extract the volume's label and SHA from its filename
+        label, sha1, extension = os.path.basename(path).split(".", 2)
+        # Encrypt it
+        uploader = Uploader(path, config)
+        click.echo("Encrypting volume %s... " % label, nl=False)
+        uploader.encrypt()
+        click.secho("Done", fg="green")
+        # Upload it
+        click.echo("Uploading volume %s... " % label, nl=False)
+        archive_id = uploader.upload()
+        click.secho("Done", fg="green")
+        # Store it in the index
+        config.index.add_volume_copy(label, "glacier", archive_id)
+
+
+@volume.command()
 def list():
     """
     Lists all volumes
     """
-    output_format = "%-10s %-20s"
-    click.secho(output_format % ("LABEL", "CREATED"), fg="cyan")
-    for volume in sorted(config.index.volumes(), key=lambda x: x["label"]):
+    index = config.index
+    output_format = "%-7s %-20s %s"
+    click.secho(output_format % ("LABEL", "CREATED", "COPIES"), fg="cyan")
+    for volume in sorted(index.volumes(), key=lambda x: x["label"]):
         click.echo(output_format % (
             volume["label"],
             datetime.datetime.fromtimestamp(volume["created"]).strftime("%Y-%m-%d %H:%M:%S"),
+            ", ".join(set(vc["type"] for vc in index.volume_copies(volume["label"]))),
+        ))
+
+
+@volume.command()
+@click.argument("label")
+def copies(label):
+    """
+    Lists all copies of a volume
+    """
+    output_format = "%-10s %-20s %s"
+    click.secho(output_format % ("TYPE", "CREATED", "LOCATION"), fg="cyan")
+    for volume_copy in sorted(config.index.volume_copies(label), key=lambda x: x["created"]):
+        click.echo(output_format % (
+            volume_copy["type"],
+            datetime.datetime.fromtimestamp(volume_copy["created"]).strftime("%Y-%m-%d %H:%M:%S"),
+            volume_copy["location"],
         ))
 
 

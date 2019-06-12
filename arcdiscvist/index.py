@@ -1,6 +1,7 @@
 import sqlite3
 import datetime
 import random
+import time
 import os
 
 
@@ -32,6 +33,16 @@ class Index(object):
                 size integer,  -- In bytes
                 created integer,  -- UNIX Timestamp
                 PRIMARY KEY (label)
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS volume_copies (
+                id integer primary key,
+                volume_label text,
+                type text,
+                location text,
+                created integer,  -- UNIX Timestamp
+                FOREIGN KEY (volume_label) REFERENCES volumes (label)
             )
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_files_path ON files (path)")
@@ -78,6 +89,24 @@ class Index(object):
             })
         return results
 
+    def volume_copies(self, label):
+        """
+        Returns an iterable of volume copies, filtering by label
+        """
+        cursor = self.conn.cursor()
+        # Work out the query
+        query = "WHERE volume_label = ?", (label, )
+        # Run it
+        results = []
+        for volume_label, type, location, created in cursor.execute("SELECT volume_label, type, location, created FROM volume_copies " + query[0], query[1]):
+            results.append({
+                "volume_label": volume_label,
+                "type": type,
+                "location": location,
+                "created": created,
+            })
+        return results
+
     def new_volume_label(self):
         """
         Returns a new, unused volume label.
@@ -101,11 +130,20 @@ class Index(object):
         cursor.execute("INSERT INTO files (path, volume_label, size, modified) VALUES (?, ?, ?, ?)", (file_path, volume_label, file_size, file_modified))
         self.conn.commit()
 
+    def add_volume_copy(self, volume_label, type, location):
+        """
+        Adds a record of a volume copy
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT INTO volume_copies (volume_label, type, location, created) VALUES (?, ?, ?, ?)", (volume_label, type, location, time.time()))
+        self.conn.commit()
+
     def remove_volume(self, label):
         """
         Removes a volume and its files
         """
         cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM volume_copies WHERE volume_label = ?", (label, ))
         cursor.execute("DELETE FROM files WHERE volume_label = ?", (label, ))
         cursor.execute("DELETE FROM volumes WHERE label = ?", (label, ))
         self.conn.commit()

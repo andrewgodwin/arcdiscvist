@@ -49,3 +49,16 @@ class Config(object):
             return os.path.abspath(self.config['source']['path'])
         except KeyError:
             raise ValueError("No source path in config file")
+
+    @property
+    def volumes_path(self):
+        """
+        Returns the path where volumes are written/downloaded
+        """
+        try:
+            return os.path.abspath(self.config['volumes']['path'])
+        except KeyError:
+            raise ValueError("No volumes path in config file")
+
+    def __getitem__(self, key):
+        return self.config[key]
