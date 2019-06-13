@@ -251,15 +251,22 @@ def list(no_copies=None):
     output_format = "%-7s %-20s %s"
     click.secho(output_format % ("LABEL", "CREATED", "COPIES"), fg="cyan")
     for volume in sorted(index.volumes(), key=lambda x: x["label"]):
-        # Skip copy types
+        # Work out what kinds of copies it has, plus local ones
         copy_types = set(vc["type"] for vc in index.volume_copies(volume["label"]))
+        try:
+            label_to_path(volume["label"])
+        except ClickException:
+            pass
+        else:
+            copy_types.add("local")
+        # Skip copy types
         if no_copies and no_copies in copy_types:
             continue
         # Print it out
         click.echo(output_format % (
             volume["label"],
             datetime.datetime.fromtimestamp(volume["created"]).strftime("%Y-%m-%d %H:%M:%S"),
-            ", ".join(copy_types),
+            ", ".join(sorted(copy_types)),
         ))
 
 

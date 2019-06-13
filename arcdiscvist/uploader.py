@@ -30,7 +30,7 @@ class Uploader:
             "--batch",
             "--yes",
             "--passphrase",
-            self.config['glacier']['passphrase'],
+            self.config['s3']['passphrase'],
             "-o",
             self.encrypted_path,
             self.volume_path,
