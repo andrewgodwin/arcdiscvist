@@ -136,7 +136,24 @@ def extract(path):
 
 @main.group()
 def volume():
+    """
+    Volume management subcommands
+    """
     pass
+
+
+def label_to_path(label_or_path):
+    """
+    If just a label was given, turns it into a path.
+    """
+    if ".tar" in label_or_path:
+        return label_or_path
+    else:
+        options = os.listdir(config.volumes_path)
+        for filename in options:
+            if filename.startswith(label_or_path + "."):
+                return os.path.join(config.volumes_path, filename)
+        raise click.ClickException("No file for volume %s" % label_or_path)
 
 
 @volume.command()
@@ -145,6 +162,7 @@ def index(paths):
     """
     Adds one or more volumes to the index
     """
+    paths = map(label_to_path, paths)
     for path in paths:
         # Extract the volume's label and SHA from its filename
         label, sha1, extension = os.path.basename(path).split(".", 2)
@@ -174,6 +192,7 @@ def validate(paths):
     Validates one or more volume files by hash
     """
     all_good = True
+    paths = map(label_to_path, paths)
     for path in paths:
         # Extract the volume's label and SHA from its filename
         label, sha1, extension = os.path.basename(path).split(".", 2)
@@ -205,6 +224,7 @@ def upload(paths):
     """
     Encrypts and uploads volumes to Amazon Glacier
     """
+    paths = map(label_to_path, paths)
     for path in paths:
         # Extract the volume's label and SHA from its filename
         label, sha1, extension = os.path.basename(path).split(".", 2)
