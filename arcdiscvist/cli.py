@@ -214,15 +214,16 @@ def upload(paths):
         uploader.encrypt()
         click.secho("Done", fg="green")
         # Upload it
-        click.echo("Uploading volume %s... " % label, nl=False)
+        click.echo("Uploading volume %s... " % label)
         archive_id = uploader.upload()
         click.secho("Done", fg="green")
         # Store it in the index
-        config.index.add_volume_copy(label, "glacier", archive_id)
+        config.index.add_volume_copy(label, "s3", archive_id)
 
 
 @volume.command()
-def list():
+@click.option("--no-copies", default=None)
+def list(no_copies=None):
     """
     Lists all volumes
     """
@@ -230,10 +231,15 @@ def list():
     output_format = "%-7s %-20s %s"
     click.secho(output_format % ("LABEL", "CREATED", "COPIES"), fg="cyan")
     for volume in sorted(index.volumes(), key=lambda x: x["label"]):
+        # Skip copy types
+        copy_types = set(vc["type"] for vc in index.volume_copies(volume["label"]))
+        if no_copies and no_copies in copy_types:
+            continue
+        # Print it out
         click.echo(output_format % (
             volume["label"],
             datetime.datetime.fromtimestamp(volume["created"]).strftime("%Y-%m-%d %H:%M:%S"),
-            ", ".join(set(vc["type"] for vc in index.volume_copies(volume["label"]))),
+            ", ".join(copy_types),
         ))
 
 
@@ -243,7 +249,7 @@ def copies(label):
     """
     Lists all copies of a volume
     """
-    output_format = "%-10s %-20s %s"
+    output_format = "%-7s %-20s %s"
     click.secho(output_format % ("TYPE", "CREATED", "LOCATION"), fg="cyan")
     for volume_copy in sorted(config.index.volume_copies(label), key=lambda x: x["created"]):
         click.echo(output_format % (

@@ -40,14 +40,13 @@ class Uploader:
         """
         Uploads the volume. Returns the Glacier ID.
         """
-        aws_output = subprocess.check_output([
+        subprocess.check_call([
             "aws",
-            "glacier",
-            "upload-archive",
-            "--account-id", "-",
-            "--vault-name", self.config['glacier']['vault'],
-            "--archive-description", os.path.basename(self.encrypted_path),
-            "--body", self.encrypted_path,
+            "s3",
+            "cp",
+            "--storage-class", "DEEP_ARCHIVE",
+            self.encrypted_path,
+            "s3://%s/%s" % (self.config["s3"]["bucket"], os.path.basename(self.encrypted_path))
         ])
         os.unlink(self.encrypted_path)
-        return json.loads(aws_output)['archiveId']
+        return "%s/%s" % (self.config["s3"]["bucket"], os.path.basename(self.encrypted_path))
