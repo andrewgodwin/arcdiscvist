@@ -1,6 +1,6 @@
+import json
 import os
 import subprocess
-import json
 
 
 class Uploader:
@@ -24,29 +24,38 @@ class Uploader:
         if os.path.isfile(self.encrypted_path):
             raise ValueError("Encrypted file is apparently already present")
         # Encrypt
-        subprocess.check_output([
-            "gpg",
-            "--symmetric",
-            "--batch",
-            "--yes",
-            "--passphrase",
-            self.config['s3']['passphrase'],
-            "-o",
-            self.encrypted_path,
-            self.volume_path,
-        ])
+        subprocess.check_output(
+            [
+                "gpg",
+                "--symmetric",
+                "--batch",
+                "--yes",
+                "--passphrase",
+                self.config["s3"]["passphrase"],
+                "-o",
+                self.encrypted_path,
+                self.volume_path,
+            ]
+        )
 
     def upload(self):
         """
         Uploads the volume. Returns the Glacier ID.
         """
-        subprocess.check_call([
-            "aws",
-            "s3",
-            "cp",
-            "--storage-class", "DEEP_ARCHIVE",
-            self.encrypted_path,
-            "s3://%s/%s" % (self.config["s3"]["bucket"], os.path.basename(self.encrypted_path))
-        ])
+        subprocess.check_call(
+            [
+                "aws",
+                "s3",
+                "cp",
+                "--storage-class",
+                "DEEP_ARCHIVE",
+                self.encrypted_path,
+                "s3://%s/%s"
+                % (self.config["s3"]["bucket"], os.path.basename(self.encrypted_path)),
+            ]
+        )
         os.unlink(self.encrypted_path)
-        return "%s/%s" % (self.config["s3"]["bucket"], os.path.basename(self.encrypted_path))
+        return "%s/%s" % (
+            self.config["s3"]["bucket"],
+            os.path.basename(self.encrypted_path),
+        )

@@ -1,4 +1,3 @@
-import click
 import datetime
 import os
 import shlex
@@ -6,11 +5,13 @@ import subprocess
 import sys
 import tarfile
 
-from .builder import Builder, Scanner
-from .config import Config
-from .uploader import Uploader
-from .utils import human_size
+import click
 
+from . import __version__
+from .archive import Archive
+from .config import Config
+from .scanner import Scanner
+from .utils import human_size
 
 config = Config()
 
@@ -21,18 +22,29 @@ def main():
 
 
 @main.command()
-@click.option('-s', '--size', type=int, default=10, help="Size of the volume in GB")
-@click.option('-y', '--yes', is_flag=True, default=False)
-@click.option('-c', '--compress', is_flag=True, default=False)
-@click.option('--auto-index/--no-index', is_flag=True, default=True, help="Index the volume immediately")
-@click.argument('patterns', nargs=-1)
-def build(patterns, size, yes, compress, auto_index):
+def info():
+    click.echo(f"Arcdiscvist version {__version__}")
+    click.echo(f"  Config file: {config.path}")
+    click.echo(f"  Root path: {config.root_path}\n")
+    click.echo(f"  Backends:")
+    for name, backend in config.backends.items():
+        click.echo(f"    {name}: {backend}")
+
+
+@main.command()
+@click.option("-s", "--size", type=int, default=50, help="Size of the archive in GB")
+@click.option("-y", "--yes", is_flag=True, default=False)
+@click.argument("backend_name")
+@click.argument("patterns", nargs=-1)
+def pack(backend_name, patterns, size, yes):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
     # Find the paths
     click.echo("Scanning files... ", nl=False)
-    paths, size_used = Scanner(config.source_path, patterns).volume_paths(config.index, size * (1024 ** 3))
+    paths, size_used = Scanner(config.root_path, patterns).unstored_paths(
+        config.index, size * (1024 ** 3)
+    )
     click.secho("Done", fg="green")
     if not paths:
         click.secho("No files found to add.", fg="yellow")
@@ -46,27 +58,25 @@ def build(patterns, size, yes, compress, auto_index):
         if not click.confirm("Proceed with build?"):
             return
     click.echo()
-    # Select an unused volume label
-    volume_label = config.index.new_volume_label()
-    # Build the volume
-    final_path = Builder(volume_label, config.volumes_path).build(
-        config.source_path,
-        paths,
-        size_used,
-        compression=compress,
-    )
-    click.echo(click.style("Volume built as %s" % final_path, fg="green"))
-    # Auto-index it
-    if auto_index:
-        click.echo("\nIndexing new volume...")
-        index([final_path])
+    # Select an unused archive ID
+    archive_id = config.index.new_archive_id()
+    # Load the backend
+    try:
+        backend = config.backends[backend_name]
+    except KeyError:
+        raise click.ClickException(f"No such backend {backend_name}")
+    # Pack the volume
+    archive = Archive.from_files(archive_id, paths, config.root_path)
+    click.echo(f"Archive is {archive.id}, size {human_size(archive.size)}")
+    backend.archive_store(config.root_path, archive)
+    click.echo(f"Archive stored")
 
 
 ## File querying commands
 
 
 @main.command()
-@click.argument('path', default="")
+@click.argument("path", default="")
 def ls(path):
     """
     Lists the context of the index at the given path.
@@ -91,7 +101,7 @@ def ls(path):
 
 
 @main.command()
-@click.argument('pattern')
+@click.argument("pattern")
 def find(pattern):
     """
     Finds all files matching the pattern
@@ -105,25 +115,31 @@ def print_files(files):
     click.secho(output_format % ("SIZE", "VOLUME", "FILENAME"), fg="cyan")
     for name, attrs in sorted(files.items()):
         if attrs["size"] == "dir":
-            click.echo(output_format % (
-                "dir",
-                "",
-                name,
-            ))
+            click.echo(
+                output_format
+                % (
+                    "dir",
+                    "",
+                    name,
+                )
+            )
         else:
-            click.echo(output_format % (
-                human_size(attrs["size"]),
-                attrs["volume_label"],
-                name,
-            ))
+            click.echo(
+                output_format
+                % (
+                    human_size(attrs["size"]),
+                    attrs["volume_label"],
+                    name,
+                )
+            )
 
 
 ## File restore commands
 
 
 @main.command
-@click.argument('path')
-@click.argument('destination')
+@click.argument("path")
+@click.argument("destination")
 def extract(path):
     """
     Extracts a single file by path to a named destination
@@ -157,7 +173,7 @@ def label_to_path(label_or_path):
 
 
 @volume.command()
-@click.argument('paths', nargs=-1)
+@click.argument("paths", nargs=-1)
 def index(paths):
     """
     Adds one or more volumes to the index
@@ -181,12 +197,14 @@ def index(paths):
                 config.index.add_file_copy(info.name, info.size, info.mtime, label)
                 added_copies += 1
         # Add it in
-        config.index.add_volume(label, sha1, os.path.getsize(path), os.stat(path).st_mtime)
+        config.index.add_volume(
+            label, sha1, os.path.getsize(path), os.stat(path).st_mtime
+        )
         click.secho("%s added, with %i files" % (label, added_copies))
 
 
 @volume.command()
-@click.argument('paths', nargs=-1)
+@click.argument("paths", nargs=-1)
 def validate(paths):
     """
     Validates one or more volume files by hash
@@ -201,9 +219,13 @@ def validate(paths):
         # Different handling for compressed files!
         click.echo("Validating %s... " % label, nl=False)
         if extension == "tar.gz":
-            calculated_sha1 = subprocess.check_output("gzip -dc %s | sha1sum" % shlex.quote(path), shell=True)
+            calculated_sha1 = subprocess.check_output(
+                "gzip -dc %s | sha1sum" % shlex.quote(path), shell=True
+            )
         elif extension == "tar.bz2":
-            calculated_sha1 = subprocess.check_output("bzip2 -dc %s | sha1sum" % shlex.quote(path), shell=True)
+            calculated_sha1 = subprocess.check_output(
+                "bzip2 -dc %s | sha1sum" % shlex.quote(path), shell=True
+            )
         else:
             calculated_sha1 = subprocess.check_output(["sha1sum", path])
         calculated_sha1 = calculated_sha1.strip().split()[0].decode("ascii")
@@ -219,7 +241,7 @@ def validate(paths):
 
 
 @volume.command()
-@click.argument('paths', nargs=-1)
+@click.argument("paths", nargs=-1)
 def upload(paths):
     """
     Encrypts and uploads volumes to Amazon Glacier
@@ -263,11 +285,16 @@ def list(no_copies=None):
         if no_copies and no_copies in copy_types:
             continue
         # Print it out
-        click.echo(output_format % (
-            volume["label"],
-            datetime.datetime.fromtimestamp(volume["created"]).strftime("%Y-%m-%d %H:%M:%S"),
-            ", ".join(sorted(copy_types)),
-        ))
+        click.echo(
+            output_format
+            % (
+                volume["label"],
+                datetime.datetime.fromtimestamp(volume["created"]).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                ", ".join(sorted(copy_types)),
+            )
+        )
 
 
 @volume.command()
@@ -278,16 +305,23 @@ def copies(label):
     """
     output_format = "%-7s %-20s %s"
     click.secho(output_format % ("TYPE", "CREATED", "LOCATION"), fg="cyan")
-    for volume_copy in sorted(config.index.volume_copies(label), key=lambda x: x["created"]):
-        click.echo(output_format % (
-            volume_copy["type"],
-            datetime.datetime.fromtimestamp(volume_copy["created"]).strftime("%Y-%m-%d %H:%M:%S"),
-            volume_copy["location"],
-        ))
+    for volume_copy in sorted(
+        config.index.volume_copies(label), key=lambda x: x["created"]
+    ):
+        click.echo(
+            output_format
+            % (
+                volume_copy["type"],
+                datetime.datetime.fromtimestamp(volume_copy["created"]).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                volume_copy["location"],
+            )
+        )
 
 
 @volume.command()
-@click.argument('label')
+@click.argument("label")
 def contents(label):
     """
     Lists the contents of a volume
@@ -297,7 +331,7 @@ def contents(label):
 
 
 @volume.command()
-@click.argument('label')
+@click.argument("label")
 def remove(label):
     """
     Removes a volume and all its file entries from the database

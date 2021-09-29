@@ -1,27 +1,15 @@
 Arcdiscvist
 ===========
 
-Simple tool for managing archived data stored across a number of offline discs
-or volumes, with a separate online index, and optional redundancy/recovery
-files. Split into sub-commands.
+Simple tool for managing archived data stored across a number of "bundles",
+which can be stored on either remote storage, or physical media.
 
-Storage volumes are identified by a short label, like ``XERGQP``, and can be
-either rewriteable media, like HDDs/SD cards, or write-once media, like BD-R discs.
-You can save data onto volumes, store them away offline, and use the index to
-query which ones you need to access or restore certain files. Volumes are
-single, large files, with meta information and parity data to allow recovery
-due to corruption. Multiple volumes can be stored per disk.
+An online index allows quick querying of the structure of the entire backed-up
+content without access to the original files, but is optional, and can be
+rebuilt.
 
 The storage is presented as a single unified folder hierarchy; sections can
 be built and restored by path.
-
-Automatically looks for and identifies storage volumes based on system drives
-with ``ABCDEF.arcdiscvist`` folders in the top level or an ``arcdiscvist``
-folder.
-
-Works from a local folder on volatile storage that acts as the place to build
-volumes from and restore them to, and which will mirror the storage folder
-hierarchy.
 
 Configuration is stored in ~/.arcdiscvist or in /etc/arcdiscvist.
 
@@ -124,3 +112,21 @@ destroyed
 
 Marks a volume as destroyed or lost, removing all entries credited to it
 from the index. You can undo this operation by running ``index`` on the volume.
+
+
+Archive Format
+--------------
+
+Archives are gzipped tarballs that contain the files that are archived, plus
+an "__arcdiscvist__" file that contains JSON describing the archive.
+
+In most storage backends, they will be accompanied by the metadata file as a
+separate item (so the entire tarball does not need to be retrieved for rebuild)
+and can be optionally gzipped.
+
+The file extensions are::
+
+    ABCDEF.arcd
+    ABCDEF.meta.arcd
+    ADBCEF.gpg.arcd
+    ABCDEF.meta.gpg.arcd

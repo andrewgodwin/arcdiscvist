@@ -1,8 +1,9 @@
-import os
 import configparser
-import datetime
-import subprocess
+import importlib
+import os
+from typing import Dict
 
+from .backends.base import BaseBackend
 from .index import Index
 
 
@@ -27,38 +28,41 @@ class Config(object):
             if os.path.isfile(path):
                 self.config = configparser.ConfigParser()
                 self.config.read(path)
+                self.path = path
+                # Load backends
+                self.backends: Dict[str, BaseBackend] = {}
+                for section in self.config.sections():
+                    if section.startswith("backend."):
+                        name = section.split(".", 1)[1]
+                        module_name, class_name = self.config[section]["class"].rsplit(
+                            ".", 1
+                        )
+                        instance = getattr(
+                            importlib.import_module(module_name), class_name
+                        )(path=self.config[section]["path"])
+                        self.backends[name] = instance
                 return
         raise ValueError("No config file found! Paths: %s" % ", ".join(self.paths))
 
     @property
-    def index(self):
+    def index(self) -> Index:
         """
         Returns an Index object
         """
         try:
-            return Index(self.config['index']['path'])
+            return Index(self.config["index"]["path"])
         except KeyError:
             raise ValueError("No index path in config file")
 
     @property
-    def source_path(self):
+    def root_path(self) -> str:
         """
-        Returns the source path
-        """
-        try:
-            return os.path.abspath(self.config['source']['path'])
-        except KeyError:
-            raise ValueError("No source path in config file")
-
-    @property
-    def volumes_path(self):
-        """
-        Returns the path where volumes are written/downloaded
+        Returns the root path
         """
         try:
-            return os.path.abspath(self.config['volumes']['path'])
+            return os.path.abspath(self.config["root"]["path"])
         except KeyError:
-            raise ValueError("No volumes path in config file")
+            raise ValueError("No root path in config file")
 
     def __getitem__(self, key):
         return self.config[key]

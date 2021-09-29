@@ -1,9 +1,10 @@
-import click
 import json
 import os
-import tempfile
-import tarfile
 import subprocess
+import tarfile
+import tempfile
+
+import click
 
 
 class Builder:
@@ -28,16 +29,23 @@ class Builder:
             # Write out the JSON file with info
             json_path = os.path.join(dirname, "volume.json")
             with open(json_path, "w") as fh:
-                json.dump({
-                    "label": self.label,
-                    "paths": paths,
-                }, fh)
+                json.dump(
+                    {
+                        "label": self.label,
+                        "paths": paths,
+                    },
+                    fh,
+                )
             # Build the tar file
             tar_path = os.path.join(self.output_dir, "%s.temp.tar" % self.label)
             with click.progressbar(length=expected_size, label="Adding files") as bar:
                 with tarfile.open(tar_path, "x") as tar:
                     # Add JSON info file
-                    tar.add(json_path, arcname="__arcdiscvist_volume", filter=self.normalize_tar)
+                    tar.add(
+                        json_path,
+                        arcname="__arcdiscvist_volume",
+                        filter=self.normalize_tar,
+                    )
                     # Add data files
                     for i, path in enumerate(paths):
                         real_path = os.path.join(source_path, path)
@@ -46,7 +54,12 @@ class Builder:
 
             # Calculate the SHA1 hash
             click.echo("Calculating checksum... ", nl=False)
-            sha1sum = subprocess.check_output(["sha1sum", tar_path]).strip().split()[0].decode("ascii")
+            sha1sum = (
+                subprocess.check_output(["sha1sum", tar_path])
+                .strip()
+                .split()[0]
+                .decode("ascii")
+            )
             click.secho("Done", fg="green")
             # Try compressing it
             if compression:
@@ -55,15 +68,23 @@ class Builder:
                 click.secho("Done", fg="green")
                 uncompressed_size = os.path.getsize(tar_path)
                 compressed_size = os.path.getsize(tar_path + ".gz")
-                ratio = (uncompressed_size / compressed_size)
+                ratio = uncompressed_size / compressed_size
                 if ratio < 0.95:
-                    click.echo("  Using compressed version (ratio %.2f%%)" % (ratio * 100))
+                    click.echo(
+                        "  Using compressed version (ratio %.2f%%)" % (ratio * 100)
+                    )
                     tar_path += ".gz"
                 else:
-                    click.echo("  Not using compressed version (ratio %.2f%%)" % (ratio * 100))
+                    click.echo(
+                        "  Not using compressed version (ratio %.2f%%)" % (ratio * 100)
+                    )
             # Move it to its final destination
             click.echo("Moving to output... ", nl=False)
-            final_path = os.path.join(self.output_dir, "%s.%s.tar%s" % (self.label, sha1sum, ".gz" if tar_path.endswith(".gz") else ""))
+            final_path = os.path.join(
+                self.output_dir,
+                "%s.%s.tar%s"
+                % (self.label, sha1sum, ".gz" if tar_path.endswith(".gz") else ""),
+            )
             os.rename(tar_path, final_path)
             click.secho("Done", fg="green")
             return final_path
@@ -93,7 +114,9 @@ class Scanner:
         for curpath, dirnames, filenames in os.walk(self.source_path):
             # Trim out dirnames not in the filter list
             for dirname in list(dirnames):
-                dirbits = os.path.join(curpath, dirname)[len(self.source_path)+1:].split("/")
+                dirbits = os.path.join(curpath, dirname)[
+                    len(self.source_path) + 1 :
+                ].split("/")
                 if self.patterns:
                     for f in self.patterns:
                         fbits = f.strip("/").split("/")
@@ -114,7 +137,7 @@ class Scanner:
                             break
                     else:
                         continue
-                relative_path = file_path[len(self.source_path) + 1:]
+                relative_path = file_path[len(self.source_path) + 1 :]
                 yield relative_path
 
     def volume_paths(self, index, size):
@@ -128,11 +151,14 @@ class Scanner:
                 # Verify it's the same file (via size only for now)
                 index_size = list(index_hit.values())[0]["size"]
                 if index_size != file_size:
-                    raise ValueError("File %s already in index but with different size! (%s != %s)" % (
-                        relative_path,
-                        index_size,
-                        file_size,
-                    ))
+                    raise ValueError(
+                        "File %s already in index but with different size! (%s != %s)"
+                        % (
+                            relative_path,
+                            index_size,
+                            file_size,
+                        )
+                    )
                 continue
             # Add it to our collection
             if (size_used + file_size) <= size:
