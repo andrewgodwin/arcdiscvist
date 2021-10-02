@@ -128,5 +128,5 @@ The file extensions are::
 
     ABCDEF.arcd
     ABCDEF.meta.arcd
-    ADBCEF.gpg.arcd
-    ABCDEF.meta.gpg.arcd
+    ADBCEF.arcd.gpg
+    ABCDEF.meta.arcd.gpg

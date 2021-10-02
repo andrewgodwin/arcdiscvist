@@ -1,11 +1,9 @@
 import datetime
-import os
-import shlex
-import subprocess
-import sys
-import tarfile
+import logging
 
 import click
+
+from arcdiscvist.backends.base import BaseBackend
 
 from . import __version__
 from .archive import Archive
@@ -18,7 +16,11 @@ config = Config()
 
 @click.group()
 def main():
-    pass
+    logging.basicConfig(
+        level=logging.INFO,
+        format="  %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
 
 
 @main.command()
@@ -26,7 +28,7 @@ def info():
     click.echo(f"Arcdiscvist version {__version__}")
     click.echo(f"  Config file: {config.path}")
     click.echo(f"  Root path: {config.root_path}\n")
-    click.echo(f"  Backends:")
+    click.echo("  Backends:")
     for name, backend in config.backends.items():
         click.echo(f"    {name}: {backend}")
 
@@ -61,15 +63,26 @@ def pack(backend_name, patterns, size, yes):
     # Select an unused archive ID
     archive_id = config.index.new_archive_id()
     # Load the backend
-    try:
-        backend = config.backends[backend_name]
-    except KeyError:
-        raise click.ClickException(f"No such backend {backend_name}")
+    backend = get_backend(backend_name)
     # Pack the volume
     archive = Archive.from_files(archive_id, paths, config.root_path)
     click.echo(f"Archive is {archive.id}, size {human_size(archive.size)}")
     backend.archive_store(config.root_path, archive)
-    click.echo(f"Archive stored")
+    click.echo("Archive stored")
+    config.index.add_archive(archive, backend_name)
+    click.echo("Archive indexed")
+
+
+@main.command()
+@click.argument("backend_name")
+@click.argument("archive_id")
+def unpack(backend_name, archive_id):
+    """
+    Retrieves the named archive and unpacks it to the root
+    """
+    backend = get_backend(backend_name)
+    click.echo(f"Retrieving archive {archive_id}")
+    backend.archive_retrieve(config.root_path, archive_id)
 
 
 ## File querying commands
@@ -112,7 +125,7 @@ def find(pattern):
 
 def print_files(files):
     output_format = "%-10s %-8s %s"
-    click.secho(output_format % ("SIZE", "VOLUME", "FILENAME"), fg="cyan")
+    click.secho(output_format % ("SIZE", "ARCHIVE", "FILENAME"), fg="cyan")
     for name, attrs in sorted(files.items()):
         if attrs["size"] == "dir":
             click.echo(
@@ -128,218 +141,112 @@ def print_files(files):
                 output_format
                 % (
                     human_size(attrs["size"]),
-                    attrs["volume_label"],
+                    attrs["archive_id"],
                     name,
                 )
             )
 
 
-## File restore commands
-
-
-@main.command
-@click.argument("path")
-@click.argument("destination")
-def extract(path):
-    """
-    Extracts a single file by path to a named destination
-    """
-    pass
-
-
-## Volume commands
+## Archive commands
 
 
 @main.group()
-def volume():
+def archive():
     """
-    Volume management subcommands
+    Archive management subcommands
     """
     pass
 
 
-def label_to_path(label_or_path):
+@archive.command()
+@click.argument("backend_name")
+@click.argument("ids", nargs=-1)
+def index(backend_name, ids):
     """
-    If just a label was given, turns it into a path.
+    Adds one or more archives to the index from their backend
     """
-    if ".tar" in label_or_path:
-        return label_or_path
-    else:
-        options = os.listdir(config.volumes_path)
-        for filename in options:
-            if filename.startswith(label_or_path + "."):
-                return os.path.join(config.volumes_path, filename)
-        raise click.ClickException("No file for volume %s" % label_or_path)
-
-
-@volume.command()
-@click.argument("paths", nargs=-1)
-def index(paths):
-    """
-    Adds one or more volumes to the index
-    """
-    paths = map(label_to_path, paths)
-    for path in paths:
-        # Extract the volume's label and SHA from its filename
-        label, sha1, extension = os.path.basename(path).split(".", 2)
-        assert extension in ("tar", "tar.gz", "tar.bz2")
-        assert len(sha1) == 40
+    # Load the backend
+    backend = get_backend(backend_name)
+    # Handle each ID
+    for id in ids:
         # See if the volume is already in there
-        if config.index.volumes(label=label):
-            click.secho("%s already indexed" % label, fg="yellow")
+        if config.index.archives(id=id):
+            click.secho(f"{id} already indexed", fg="yellow")
             continue
-        # Add each file in the volume
-        added_copies = 0
-        with tarfile.open(path, "r") as tar:
-            for info in tar:
-                if info.name.startswith("__arcdiscvist"):
-                    continue
-                config.index.add_file_copy(info.name, info.size, info.mtime, label)
-                added_copies += 1
-        # Add it in
-        config.index.add_volume(
-            label, sha1, os.path.getsize(path), os.stat(path).st_mtime
-        )
-        click.secho("%s added, with %i files" % (label, added_copies))
+        # Fetch the volume's metadata and make an Archive object
+        metadata = backend.archive_retrieve_meta(id)
+        archive = Archive.from_json(metadata)
+        # Index it
+        config.index.add_archive(archive, backend_name)
+        click.secho(f"{archive.id} added, with {len(archive.files)} files")
 
 
-@volume.command()
-@click.argument("paths", nargs=-1)
-def validate(paths):
+@archive.command()
+def list():
     """
-    Validates one or more volume files by hash
-    """
-    all_good = True
-    paths = map(label_to_path, paths)
-    for path in paths:
-        # Extract the volume's label and SHA from its filename
-        label, sha1, extension = os.path.basename(path).split(".", 2)
-        assert extension in ("tar", "tar.gz", "tar.bz2")
-        assert len(sha1) == 40
-        # Different handling for compressed files!
-        click.echo("Validating %s... " % label, nl=False)
-        if extension == "tar.gz":
-            calculated_sha1 = subprocess.check_output(
-                "gzip -dc %s | sha1sum" % shlex.quote(path), shell=True
-            )
-        elif extension == "tar.bz2":
-            calculated_sha1 = subprocess.check_output(
-                "bzip2 -dc %s | sha1sum" % shlex.quote(path), shell=True
-            )
-        else:
-            calculated_sha1 = subprocess.check_output(["sha1sum", path])
-        calculated_sha1 = calculated_sha1.strip().split()[0].decode("ascii")
-        # Say if it was good or not
-        if calculated_sha1 == sha1:
-            click.secho("Valid", fg="green")
-        else:
-            click.secho("Invalid (%s)" % calculated_sha1, fg="red")
-            all_good = False
-    # Exit appropriately
-    if not all_good:
-        sys.exit(1)
-
-
-@volume.command()
-@click.argument("paths", nargs=-1)
-def upload(paths):
-    """
-    Encrypts and uploads volumes to Amazon Glacier
-    """
-    paths = map(label_to_path, paths)
-    for path in paths:
-        # Extract the volume's label and SHA from its filename
-        label, sha1, extension = os.path.basename(path).split(".", 2)
-        # Encrypt it
-        uploader = Uploader(path, config)
-        click.echo("Encrypting volume %s... " % label, nl=False)
-        uploader.encrypt()
-        click.secho("Done", fg="green")
-        # Upload it
-        click.echo("Uploading volume %s... " % label)
-        archive_id = uploader.upload()
-        click.secho("Done", fg="green")
-        # Store it in the index
-        config.index.add_volume_copy(label, "s3", archive_id)
-
-
-@volume.command()
-@click.option("--no-copies", default=None)
-def list(no_copies=None):
-    """
-    Lists all volumes
+    Lists all local archives
     """
     index = config.index
     output_format = "%-7s %-20s %s"
-    click.secho(output_format % ("LABEL", "CREATED", "COPIES"), fg="cyan")
-    for volume in sorted(index.volumes(), key=lambda x: x["label"]):
-        # Work out what kinds of copies it has, plus local ones
-        copy_types = set(vc["type"] for vc in index.volume_copies(volume["label"]))
-        try:
-            label_to_path(volume["label"])
-        except ClickException:
-            pass
-        else:
-            copy_types.add("local")
-        # Skip copy types
-        if no_copies and no_copies in copy_types:
-            continue
+    click.secho(output_format % ("ID", "CREATED", "BACKENDS"), fg="cyan")
+    for archive in sorted(index.archives(), key=lambda x: x["id"]):
         # Print it out
         click.echo(
             output_format
             % (
-                volume["label"],
-                datetime.datetime.fromtimestamp(volume["created"]).strftime(
+                archive["id"],
+                datetime.datetime.fromtimestamp(archive["created"]).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 ),
-                ", ".join(sorted(copy_types)),
+                ", ".join(sorted(archive["backend_names"])),
             )
         )
 
 
-@volume.command()
-@click.argument("label")
-def copies(label):
+@archive.command()
+@click.argument("backend_name")
+def list_remote(backend_name):
     """
-    Lists all copies of a volume
+    Lists all remote archives in a backend
     """
-    output_format = "%-7s %-20s %s"
-    click.secho(output_format % ("TYPE", "CREATED", "LOCATION"), fg="cyan")
-    for volume_copy in sorted(
-        config.index.volume_copies(label), key=lambda x: x["created"]
-    ):
-        click.echo(
-            output_format
-            % (
-                volume_copy["type"],
-                datetime.datetime.fromtimestamp(volume_copy["created"]).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-                volume_copy["location"],
-            )
-        )
+    output_format = "%-7s"
+    backend = get_backend(backend_name)
+    click.secho(output_format % ("ID",), fg="cyan")
+    for archive_id in sorted(backend.archive_list()):
+        # Print it out
+        click.echo(output_format % (archive_id,))
 
 
-@volume.command()
-@click.argument("label")
-def contents(label):
+@archive.command()
+@click.argument("archive_id")
+def contents(archive_id):
     """
     Lists the contents of a volume
     """
-    files = config.index.files(volume_label=label)
+    files = config.index.files(archive_id=archive_id)
     print_files(files)
 
 
-@volume.command()
-@click.argument("label")
-def remove(label):
+@archive.command()
+@click.argument("archive_id")
+def remove(archive_id):
     """
-    Removes a volume and all its file entries from the database
+    Removes a archive and all its file entries from the database
     """
-    # See if the volume exists
-    if not config.index.volumes(label=label):
-        click.secho("No volume '%s' found" % label, fg="red")
+    # See if the archive exists
+    if not config.index.archives(archive_id=archive_id):
+        click.secho("No archive '%s' found" % archive_id, fg="red")
         return
     # Delete it
-    config.index.remove_volume(label)
-    click.echo("Volume %s removed" % label)
+    config.index.remove_archive(archive_id)
+    click.echo("Archive %s removed" % archive_id)
+
+
+# Utilities
+
+
+def get_backend(backend_name: str) -> BaseBackend:
+    try:
+        return config.backends[backend_name]
+    except KeyError:
+        raise click.ClickException(f"No such backend {backend_name}")

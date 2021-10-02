@@ -34,12 +34,12 @@ class Config(object):
                 for section in self.config.sections():
                     if section.startswith("backend."):
                         name = section.split(".", 1)[1]
-                        module_name, class_name = self.config[section]["class"].rsplit(
-                            ".", 1
-                        )
+                        kwargs = dict(self.config[section])
+                        module_name, class_name = kwargs.pop("class").rsplit(".", 1)
+
                         instance = getattr(
                             importlib.import_module(module_name), class_name
-                        )(path=self.config[section]["path"])
+                        )(**kwargs)
                         self.backends[name] = instance
                 return
         raise ValueError("No config file found! Paths: %s" % ", ".join(self.paths))
