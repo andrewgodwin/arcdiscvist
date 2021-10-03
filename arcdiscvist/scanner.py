@@ -6,9 +6,10 @@ class Scanner:
     Scans the source directory trying to make a file list for the builder.
     """
 
-    def __init__(self, root_path, patterns):
+    def __init__(self, root_path, patterns, ignore_directories=None):
         self.root_path = root_path
         self.patterns = patterns
+        self.ignore_directories = ignore_directories or ["arcdiscvist", "@eaDir"]
 
     def paths(self):
         """
@@ -22,6 +23,9 @@ class Scanner:
                 dirbits = os.path.join(curpath, dirname)[
                     len(self.root_path) + 1 :
                 ].split("/")
+                if dirname in self.ignore_directories:
+                    dirnames.remove(dirname)
+                    continue
                 if self.patterns:
                     for f in self.patterns:
                         fbits = f.strip("/").split("/")
