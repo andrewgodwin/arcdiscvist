@@ -1,4 +1,5 @@
 import io
+import logging
 import tarfile
 
 
@@ -32,3 +33,15 @@ def tar_addbytes(tar: tarfile.TarFile, name: str, data: bytes) -> None:
     tarinfo.size = len(data)
     normalize_tarinfo(tarinfo)
     tar.addfile(tarinfo, io.BytesIO(data))
+
+
+class ProgressLogger:
+    def __init__(self):
+        self.seen = 0
+
+    def __call__(self, chunk_size):
+        old_seen_gigs = self.seen // (1024 ** 3)
+        self.seen += chunk_size
+        new_seen_gigs = self.seen // (1024 ** 3)
+        if old_seen_gigs != new_seen_gigs:
+            logging.info(f"  {new_seen_gigs}GB")

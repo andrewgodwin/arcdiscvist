@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import boto3
 
 from ..archive import Archive
+from ..utils import ProgressLogger
 from .base import BaseBackend
 
 
@@ -110,6 +111,7 @@ class S3Backend(BaseBackend):
                     archive_encrypted_path,
                     archive_encrypted_name,
                     ExtraArgs={"StorageClass": self.storage_class},
+                    Callback=ProgressLogger(),
                 )
                 self.client().upload_file(meta_encrypted_path, meta_encrypted_name)
             else:
@@ -117,6 +119,7 @@ class S3Backend(BaseBackend):
                     archive_path,
                     archive_name,
                     ExtraArgs={"StorageClass": self.storage_class},
+                    Callback=ProgressLogger(),
                 )
                 self.client().upload_file(meta_path, meta_name)
 
@@ -165,7 +168,9 @@ class S3Backend(BaseBackend):
             # Download it
             if self.passphrase:
                 self.client().download_file(
-                    archive_encrypted_name, archive_encrypted_path
+                    archive_encrypted_name,
+                    archive_encrypted_path,
+                    Callback=ProgressLogger(),
                 )
                 logging.info("Decrypting archive")
                 subprocess.check_output(
@@ -183,6 +188,10 @@ class S3Backend(BaseBackend):
                     stderr=subprocess.STDOUT,
                 )
             else:
-                self.client().download_file(archive_name, archive_path)
+                self.client().download_file(
+                    archive_name,
+                    archive_path,
+                    Callback=ProgressLogger(),
+                )
             # Unpack it
             archive.unpack(root, archive_path)
