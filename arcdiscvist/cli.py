@@ -42,6 +42,8 @@ def pack(backend_name, patterns, size, yes):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
+    # Load the backend
+    backend = get_backend(backend_name)
     # Find the paths
     click.echo("Scanning files... ", nl=False)
     paths, size_used = Scanner(config.root_path, patterns).unstored_paths(
@@ -62,8 +64,6 @@ def pack(backend_name, patterns, size, yes):
     click.echo()
     # Select an unused archive ID
     archive_id = config.index.new_archive_id()
-    # Load the backend
-    backend = get_backend(backend_name)
     # Pack the volume
     archive = Archive.from_files(archive_id, paths, config.root_path)
     click.echo(f"Archive is {archive.id}, size {human_size(archive.size)}")

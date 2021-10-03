@@ -16,6 +16,7 @@ class Scanner:
         Does not remove items in the index or account for size.
         """
         for curpath, dirnames, filenames in os.walk(self.root_path):
+            dirnames.sort()
             # Trim out dirnames not in the filter list
             for dirname in list(dirnames):
                 dirbits = os.path.join(curpath, dirname)[
@@ -30,7 +31,7 @@ class Scanner:
                     else:
                         dirnames.remove(dirname)
             # Yield file objects that match.
-            for filename in filenames:
+            for filename in sorted(filenames):
                 if filename.startswith("arcdiscvist-"):
                     continue
                 file_path = os.path.abspath(os.path.join(curpath, filename))
