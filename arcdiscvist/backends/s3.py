@@ -23,12 +23,14 @@ class S3Backend(BaseBackend):
         bucket: str,
         passphrase: Optional[str] = None,
         endpoint: Optional[str] = None,
+        storage_class: str = "STANDARD",
     ):
         self.key_id = key_id
         self.key_secret = key_secret
         self.bucket = bucket
         self.passphrase = passphrase
         self.endpoint = endpoint
+        self.storage_class = storage_class
 
     def __repr__(self):
         return f"S3Backend: {self.bucket} ({self.endpoint})"
@@ -105,11 +107,17 @@ class S3Backend(BaseBackend):
             logging.info("Uploading")
             if self.passphrase:
                 self.client().upload_file(
-                    archive_encrypted_path, archive_encrypted_name
+                    archive_encrypted_path,
+                    archive_encrypted_name,
+                    ExtraArgs={"StorageClass": self.storage_class},
                 )
                 self.client().upload_file(meta_encrypted_path, meta_encrypted_name)
             else:
-                self.client().upload_file(archive_path, archive_name)
+                self.client().upload_file(
+                    archive_path,
+                    archive_name,
+                    ExtraArgs={"StorageClass": self.storage_class},
+                )
                 self.client().upload_file(meta_path, meta_name)
 
     def archive_retrieve_meta(self, archive_id: str) -> Dict:
