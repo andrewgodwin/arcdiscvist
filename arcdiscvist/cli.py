@@ -1,5 +1,6 @@
 import datetime
 import logging
+import sys
 
 import click
 
@@ -35,10 +36,11 @@ def info():
 
 @main.command()
 @click.option("-s", "--size", type=int, default=50, help="Size of the archive in GB")
+@click.option("-m", "--minimum", type=int, default=0, help="Minimum size in GB")
 @click.option("-y", "--yes", is_flag=True, default=False)
 @click.argument("backend_name")
 @click.argument("patterns", nargs=-1)
-def pack(backend_name, patterns, size, yes):
+def pack(backend_name, patterns, size, minimum, yes):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
@@ -67,6 +69,9 @@ def pack(backend_name, patterns, size, yes):
     # Pack the volume
     archive = Archive.from_files(archive_id, paths, config.root_path)
     click.echo(f"Archive is {archive.id}, size {human_size(archive.size)}")
+    if archive.size < minimum * (1024 ** 3):
+        click.echo("Archive too small, quitting")
+        sys.exit(1)
     backend.archive_store(config.root_path, archive)
     click.echo("Archive stored")
     config.index.add_archive(archive, backend_name)
