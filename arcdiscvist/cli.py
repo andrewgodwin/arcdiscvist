@@ -26,6 +26,9 @@ def main():
 
 @main.command()
 def info():
+    """
+    Displays system information
+    """
     click.echo(f"Arcdiscvist version {__version__}")
     click.echo(f"  Config file: {config.path}")
     click.echo(f"  Root path: {config.root_path}\n")
@@ -209,20 +212,6 @@ def list():
 
 
 @archive.command()
-@click.argument("backend_name")
-def list_remote(backend_name):
-    """
-    Lists all remote archives in a backend
-    """
-    output_format = "%-7s"
-    backend = get_backend(backend_name)
-    click.secho(output_format % ("ID",), fg="cyan")
-    for archive_id in sorted(backend.archive_list()):
-        # Print it out
-        click.echo(output_format % (archive_id,))
-
-
-@archive.command()
 @click.argument("archive_id")
 def contents(archive_id):
     """
@@ -245,6 +234,47 @@ def remove(archive_id):
     # Delete it
     config.index.remove_archive(archive_id)
     click.echo("Archive %s removed" % archive_id)
+
+
+# Backend commands
+
+
+@main.group()
+def backend():
+    """
+    Archive management subcommands
+    """
+    pass
+
+
+@backend.command()
+@click.argument("backend_name")
+def archives(backend_name):
+    """
+    Lists all remote archives in a backend
+    """
+    output_format = "%-7s"
+    backend = get_backend(backend_name)
+    click.secho(output_format % ("ID",), fg="cyan")
+    for archive_id in sorted(backend.archive_list()):
+        # Print it out
+        click.echo(output_format % (archive_id,))
+
+
+@backend.command()
+@click.argument("backend_name")
+def sync(backend_name):
+    """
+    Adds unindexed archives from a backend
+    """
+    backend = get_backend(backend_name)
+    backend_archives = set(backend.archive_list())
+    local_archives = {x["id"] for x in config.index.archives()}
+    for archive_id in backend_archives.difference(local_archives):
+        click.secho(f"{archive_id} found on remote", fg="blue")
+        archive = Archive.from_json(backend.archive_retrieve_meta(archive_id))
+        config.index.add_archive(archive, backend_name)
+    click.secho(f"{len(backend_archives)} synchronised", fg="green")
 
 
 # Utilities

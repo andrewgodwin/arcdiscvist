@@ -51,7 +51,9 @@ class S3Backend(BaseBackend):
         bucket = self.client()
         results = []
         for item in bucket.objects.all():
-            if item.key.endswith(".arcd") and "meta" not in item.key:
+            if (
+                item.key.endswith(".arcd") or item.key.endswith(".arcd.gpg")
+            ) and "meta" not in item.key:
                 results.append(item.key.split(".", 1)[0])
         return results
 
