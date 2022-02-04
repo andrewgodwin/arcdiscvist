@@ -79,7 +79,7 @@ class Archive:
 
     def pack(self, root: str, archive_path: str) -> None:
         # Pack the files into the tarball
-        with tarfile.open(archive_path, "w:gz") as tar:
+        with tarfile.open(archive_path, "w:gz", compresslevel=4) as tar:
             # Meta file
             tar_addbytes(
                 tar,
