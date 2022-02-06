@@ -6,10 +6,13 @@ class Scanner:
     Scans the source directory trying to make a file list for the builder.
     """
 
-    def __init__(self, root_path, patterns, ignore_directories=None):
+    def __init__(
+        self, root_path, patterns, ignore_directories=None, ignore_patterns=None
+    ):
         self.root_path = root_path
         self.patterns = patterns
         self.ignore_directories = ignore_directories or ["arcdiscvist", "@eaDir"]
+        self.ignore_patterns = ignore_patterns or ["Thumbs.db"]
 
     def paths(self):
         """
@@ -37,6 +40,8 @@ class Scanner:
             # Yield file objects that match.
             for filename in sorted(filenames):
                 if filename.startswith("arcdiscvist-"):
+                    continue
+                if filename in self.ignore_patterns:
                     continue
                 file_path = os.path.abspath(os.path.join(curpath, filename))
                 # Make sure this file is all the way under a filter
