@@ -11,6 +11,7 @@ from .archive import Archive
 from .config import Config
 from .scanner import Scanner
 from .utils import human_size
+from .tui import ArcApp
 
 config = Config()
 
@@ -22,6 +23,11 @@ def main():
         format="  %(message)s",
         handlers=[logging.StreamHandler()],
     )
+
+
+@main.command()
+def tui():
+    ArcApp.run(title="Arcdiscvist", log="textual.log")
 
 
 @main.command()
@@ -102,23 +108,7 @@ def ls(path):
     """
     Lists the context of the index at the given path.
     """
-    # Normalise the path
-    path = path.strip("/")
-    path_depth = len(path.split("/"))
-    if not path:
-        path_depth = 0
-    # Get the set of files/dirs as a dict (name: attrs)
-    files = {}
-    for entry_path, entry_attrs in config.index.files(path_glob="%s*" % path).items():
-        entry_path_parts = entry_path.split("/")
-        # Is it a file at our level?
-        if len(entry_path_parts) - 1 == path_depth:
-            files[entry_path_parts[-1]] = entry_attrs
-        # Is it an implicit directory
-        else:
-            files[entry_path_parts[path_depth]] = {"size": "dir"}
-    # Print the resulting table
-    print_files(files)
+    print_files(config.index.contents(path))
 
 
 @main.command()
@@ -135,7 +125,7 @@ def print_files(files):
     output_format = "%-10s %-8s %s"
     click.secho(output_format % ("SIZE", "ARCHIVE", "FILENAME"), fg="cyan")
     for name, attrs in sorted(files.items()):
-        if attrs["size"] == "dir":
+        if attrs.directory:
             click.echo(
                 output_format
                 % (
@@ -148,8 +138,8 @@ def print_files(files):
             click.echo(
                 output_format
                 % (
-                    human_size(attrs["size"]),
-                    attrs["archive_id"],
+                    human_size(attrs.size),
+                    ",".join(attrs.archive_ids),
                     name,
                 )
             )

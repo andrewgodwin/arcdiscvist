@@ -1,8 +1,18 @@
 import random
 import sqlite3
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
 from .archive import Archive
+
+
+@dataclass
+class IndexFile:
+    path: str
+    directory: bool
+    size: int
+    modified: int
+    archive_ids: Set[str]
 
 
 class Index(object):
@@ -40,7 +50,9 @@ class Index(object):
         )
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_files_path ON files (path)")
 
-    def files(self, path_glob=None, path_exact=None, archive_id=None):
+    def files(
+        self, path_glob=None, path_exact=None, archive_id=None
+    ) -> Dict[str, object]:
         """
         Returns a dict of {file path: {"size": size}, ...}
         for files that match the query parameters provided.
@@ -66,6 +78,51 @@ class Index(object):
                 "archive_id": archive_id,
             }
         return result
+
+    def contents(self, path="") -> Dict[str, IndexFile]:
+        """
+        Returns the contents of the given directory, if anything.
+        Does not error if the directory doesn't exist.
+        """
+        # Normalise the path
+        path = path.strip("/")
+        path_depth: int = len(path.split("/"))
+        if not path:
+            path_depth = 0
+        # We select ALL items under, as directories are implied at any level
+        cursor = self.conn.cursor()
+        files = {}
+        for entry_path, archive_id, size, modified in cursor.execute(
+            "SELECT path, archive_id, size, modified FROM files WHERE path GLOB ?",
+            [path + "*"],
+        ):
+            entry_path_parts = entry_path.split("/")
+            # Is it a file directly under us?
+            if len(entry_path_parts) - 1 == path_depth:
+                files[entry_path_parts[-1]] = IndexFile(
+                    path=entry_path,
+                    directory=False,
+                    size=size,
+                    modified=modified,
+                    archive_ids={archive_id},
+                )
+            # Is it an implicit directory?
+            else:
+                directory_name = entry_path_parts[path_depth]
+                if directory_name not in files:
+                    files[directory_name] = IndexFile(
+                        path="/".join(entry_path_parts[: path_depth + 1]),
+                        directory=True,
+                        size=0,
+                        modified=modified,
+                        archive_ids={archive_id},
+                    )
+                else:
+                    files[directory_name].modified = max(
+                        files[directory_name].modified, modified
+                    )
+                    files[directory_name].archive_ids.add(archive_id)
+        return files
 
     # Archive operations
 

@@ -9,3 +9,4 @@ arcdiscvist-index
 *.sqlite
 *.tar*
 *.arcd
+*.log
