@@ -79,7 +79,7 @@ class Archive:
 
     def pack(self, root: str, archive_path: str) -> None:
         # Pack the files into the tarball
-        compression_level = int(os.environ.get("COMPRESSLEVEL", 4))
+        compression_level = int(os.environ.get("COMPRESSLEVEL", 0))
         with tarfile.open(
             archive_path, "w:gz" if compression_level > 0 else "w", compresslevel=compression_level or None,
         ) as tar:
