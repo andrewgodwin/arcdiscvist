@@ -39,46 +39,59 @@ def info():
 
 @main.command()
 @click.option("-s", "--size", type=int, default=50, help="Size of the archive in GB")
-@click.option("-m", "--minimum", type=int, default=0, help="Minimum size in GB")
+@click.option("-m", "--minimum", type=int, default=1, help="Minimum size in GB")
 @click.option("-y", "--yes", is_flag=True, default=False)
+@click.option("-a", "--all", is_flag=True, default=False)
 @click.argument("backend_name")
 @click.argument("patterns", nargs=-1)
-def pack(backend_name, patterns, size, minimum, yes):
+def pack(backend_name, patterns, size, minimum, yes, all):
     """
     Builds a volume out of the paths specified and writes it out to disk.
     """
-    # Load the backend
-    backend = get_backend(backend_name)
-    # Find the paths
-    click.echo("Scanning files... ", nl=False)
-    paths, size_used = Scanner(config.root_path, patterns).unstored_paths(
-        config.index, size * (1024 ** 3)
-    )
-    click.secho("Done", fg="green")
-    if not paths:
-        click.secho("No files found to add.", fg="yellow")
-        return
-    # Print what we found
-    for path in paths:
-        click.echo("> " + click.style(path, fg="blue"))
-    click.echo("%s files, %s" % (len(paths), human_size(size_used)))
-    # Prompt to continue
-    if not yes:
-        if not click.confirm("Proceed with build?"):
+    # In "all" mode, we're always automatic
+    if all:
+        yes = True
+    archive_ids = []
+    # Wrap a loop round this just in case we're in all mode
+    while True:
+        # Load the backend
+        backend = get_backend(backend_name)
+        # Find the paths
+        click.echo("Scanning files... ", nl=False)
+        paths, size_used = Scanner(config.root_path, patterns).unstored_paths(
+            config.index, size * (1024**3)
+        )
+        click.secho("Done", fg="green")
+        if not paths:
+            click.secho("No files found to add.", fg="yellow")
             return
-    click.echo()
-    # Select an unused archive ID
-    archive_id = config.index.new_archive_id()
-    # Pack the volume
-    archive = Archive.from_files(archive_id, paths, config.root_path)
-    click.echo(f"Archive is {archive.id}, size {human_size(archive.size)}")
-    if archive.size < minimum * (1024 ** 3):
-        click.echo("Archive too small, quitting")
-        sys.exit(1)
-    backend.archive_store(config.root_path, archive)
-    click.echo("Archive stored")
-    config.index.add_archive(archive, backend_name)
-    click.echo("Archive indexed")
+        # Print what we found
+        for path in paths:
+            click.echo("> " + click.style(path, fg="blue"))
+        click.echo("%s files, %s" % (len(paths), human_size(size_used)))
+        # Prompt to continue
+        if not yes:
+            if not click.confirm("Proceed with build?"):
+                return
+        click.echo()
+        # Select an unused archive ID
+        archive_id = config.index.new_archive_id()
+        # Pack the volume
+        archive = Archive.from_files(archive_id, paths, config.root_path)
+        click.echo(f"Archive is {archive.id}, size {human_size(archive.size)}")
+        if archive.size < minimum * (1024**3):
+            click.echo("Archive too small, quitting")
+            sys.exit(1)
+        backend.archive_store(config.root_path, archive)
+        click.echo(f"Archive {archive_id} stored")
+        config.index.add_archive(archive, backend_name)
+        click.echo(f"Archive {archive_id} indexed")
+        archive_ids.append(archive_id)
+        if not all:
+            break
+    # Say what we did
+    if all:
+        click.echo("Complete. Created archives " + (", ".join(archive_ids)))
 
 
 @main.command()
@@ -242,7 +255,7 @@ def remove(archive_id):
 @main.group()
 def backend():
     """
-    Archive management subcommands
+    Backend management subcommands
     """
     pass
 
