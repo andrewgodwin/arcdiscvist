@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arcdiscvist"
+description = "Archiving and indexing tool"
+readme = "README.rst"
+authors = [{ name = "Andrew Godwin", email = "andrew@aeracode.org" }]
+urls = { Homepage = "https://github.com/andrewgodwin/arcdiscvist" }
+requires-python = ">=3.7"
+dependencies = ["click~=8.2.1", "boto3~=1.40.21"]
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = { attr = "arcdiscvist.__version__" }
+
+[project.scripts]
+arcdiscvist = "arcdiscvist.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["arcdiscvist*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.rst"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short"
+
+[tool.flake8]
+ignore = ["E123", "E128", "E203", "E266", "E402", "W503", "E731", "W601"]
+max-line-length = 119
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+warn_unused_ignores = true

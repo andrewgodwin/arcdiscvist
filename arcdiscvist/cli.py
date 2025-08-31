@@ -191,7 +191,7 @@ def index(backend_name, ids):
     # Handle each ID
     for id in ids:
         # See if the volume is already in there
-        if config.index.archives(id=id):
+        if config.index.archives(archive_id=id):
             click.secho(f"{id} already indexed", fg="yellow")
             continue
         # Fetch the volume's metadata and make an Archive object

@@ -40,8 +40,8 @@ class ProgressLogger:
         self.seen = 0
 
     def __call__(self, chunk_size):
-        old_seen_gigs = self.seen // (1024 ** 3)
+        old_seen_gigs = self.seen // (1024**3)
         self.seen += chunk_size
-        new_seen_gigs = self.seen // (1024 ** 3)
+        new_seen_gigs = self.seen // (1024**3)
         if old_seen_gigs != new_seen_gigs:
             logging.info(f"  {new_seen_gigs}GB")
