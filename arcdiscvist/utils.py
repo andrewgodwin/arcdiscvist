@@ -44,4 +44,4 @@ class ProgressLogger:
         self.seen += chunk_size
         new_seen_gigs = self.seen // ((1024**3) * 5)
         if old_seen_gigs != new_seen_gigs:
-            logging.info(f"  {new_seen_gigs}GB")
+            logging.info(f"  {new_seen_gigs * 5}GB")
