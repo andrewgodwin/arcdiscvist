@@ -6,6 +6,8 @@ import tempfile
 from typing import Dict, List, Optional
 
 import boto3
+import boto3.s3.transfer
+import botocore.config
 
 from ..archive import Archive
 from ..utils import ProgressLogger
@@ -42,6 +44,7 @@ class S3Backend(BaseBackend):
             aws_access_key_id=self.key_id,
             aws_secret_access_key=self.key_secret,
             endpoint_url=self.endpoint,
+            config=botocore.config.Config(max_pool_connections=20),
         ).Bucket(self.bucket)
 
     def archive_list(self) -> List[str]:
@@ -116,6 +119,10 @@ class S3Backend(BaseBackend):
                     archive_encrypted_name,
                     ExtraArgs={"StorageClass": self.storage_class},
                     Callback=ProgressLogger(),
+                    Config=boto3.s3.transfer.TransferConfig(
+                        max_concurrency=20,
+                        use_threads=True,
+                    ),
                 )
                 self.client().upload_file(meta_encrypted_path, meta_encrypted_name)
             else:
